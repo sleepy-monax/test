@@ -1,0 +1,29 @@
+name: macOS
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Build Environment
+        run: ./ck tools setup
+      - name: Install Externs
+        run: |
+          ./ck sync
+          if [ -d _vendor/karm ]; then rsync -a _vendor/karm/ .cutekit/externs/skift/karm/; fi
+      - name: Build Libraries
+        run: ./ck build --props:async=kevent
+      - name: Test Libraries
+        continue-on-error: true
+        run: ./ck test --props:async=kevent
+      - name: Run html5lib Lexer Tests
+        continue-on-error: true
+        run: ./ck html5lib-tests run -s tokenizer --props:async=kevent
+      - name: Run html5lib Parser Tests
+        continue-on-error: true
+        run: ./ck html5lib-tests run -s tree_construction --props:async=kevent
+      - name: Run Reftests
+        continue-on-error: true
+        run: ./ck reftests run --headless --props:async=kevent
