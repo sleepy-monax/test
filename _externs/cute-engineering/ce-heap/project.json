@@ -1,0 +1,7 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.project.v2",
+    "id": "cute-engineering/ce-heap",
+    "type": "project",
+    "version": "v1.4.0",
+    "description": "A simple heap allocation library for hobby operating systems"
+}

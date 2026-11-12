@@ -1,0 +1,400 @@
+export module Karm.Print.Dialog;
+
+import Karm.App;
+import Karm.Core;
+import Karm.Kira;
+import Karm.Print;
+import Karm.Ref;
+import Karm.Sys;
+import Karm.Ui;
+import Karm.Gfx;
+import Karm.Math;
+
+using namespace Karm::Literals;
+using namespace Karm::Math::Literals;
+
+namespace Karm::Print {
+
+// MARK: Model -----------------------------------------------------------------
+
+export using PrintPreview = SharedFunc<Vec<Gfx::Snapshot>(Settings const&)>;
+
+struct State {
+    PrintPreview preview;
+    Settings settings = {};
+    Vec<Gfx::Snapshot> pages = preview(settings);
+};
+
+struct ChangePaper {
+    PaperStock paper;
+};
+
+struct ChangeOrientation {
+    Orientation orientation;
+};
+
+struct ChangeMargin {
+    Margins margins;
+};
+
+struct ToggleHeaderFooter {};
+
+struct ToggleBackgroundGraphics {};
+
+struct ChangeScale {
+    f64 scale;
+};
+
+enum struct PrintAction {
+    PRINT
+};
+
+using Action = Union<
+    ChangePaper,
+    ChangeOrientation,
+    ChangeMargin,
+    ToggleHeaderFooter,
+    ToggleBackgroundGraphics,
+    ChangeScale,
+    PrintAction>;
+
+void _printPDF(State const& s);
+
+static Ui::Task<Action> reduce(State& s, Action a) {
+    bool shouldUpdatePreview = false;
+
+    if (auto changePaper = a.is<ChangePaper>()) {
+        s.settings.stock = changePaper->paper;
+        shouldUpdatePreview = true;
+    } else if (auto changeOrientation = a.is<ChangeOrientation>()) {
+        s.settings.orientation = changeOrientation->orientation;
+        shouldUpdatePreview = true;
+    } else if (auto changeMargin = a.is<ChangeMargin>()) {
+        s.settings.margins = changeMargin->margins;
+        shouldUpdatePreview = true;
+    } else if (a.is<ToggleHeaderFooter>()) {
+        s.settings.headerFooter = not s.settings.headerFooter;
+        shouldUpdatePreview = true;
+    } else if (a.is<ToggleBackgroundGraphics>()) {
+        s.settings.backgroundGraphics = not s.settings.backgroundGraphics;
+        shouldUpdatePreview = true;
+    } else if (auto changeScale = a.is<ChangeScale>()) {
+        s.settings.scale = clamp(changeScale->scale, 0.1, 10.);
+        shouldUpdatePreview = true;
+    } else if (a.is<PrintAction>()) {
+        _printPDF(s);
+    }
+
+    if (shouldUpdatePreview) {
+        auto settings = s.settings;
+        s.pages = s.preview(settings);
+    }
+
+    return NONE;
+}
+
+using Model = Ui::Model<State, Action, reduce>;
+
+// MARK: Dialog ----------------------------------------------------------------
+
+Ui::Child _printSelect(State const& s, usize index) {
+    return Ui::hflow(
+               8_au,
+               Math::Align::CENTER,
+               Kr::checkbox(true, Ui::SINK<bool>),
+               Ui::labelMedium("Page {} of {}", index + 1, s.pages.len())
+           ) |
+           Ui::box({
+               .margin = 8_au,
+               .padding = Math::InsetsAu{6_au, 12_au, 6_au, 6_au},
+               .borderRadii = 9,
+               .borderWidth = 1,
+               .borderFill = Some(Ui::GRAY800),
+               .backgroundFill = Some(Ui::GRAY900),
+           });
+}
+
+Ui::Child _printPaper(State const& s, usize index) {
+    auto scale = 1.;
+
+    auto isMobile = App::formFactor == App::FormFactor::MOBILE;
+    if (isMobile)
+        scale = 0.5;
+
+    Math::Vec2f previewSize{
+        320 * scale,
+        320 * (1. / s.settings.pageAspectRatio()) * scale,
+    };
+
+    return Ui::stack(
+               Ui::canvas(
+                   s.pages[index]
+               ) | Ui::box({
+                       .borderWidth = 1,
+                       .borderFill = Some(Ui::GRAY50.withOpacity(0.1)),
+                       .backgroundFill = Some(Gfx::WHITE),
+                   }),
+               _printSelect(s, index) | Ui::align(Math::Align::BOTTOM_END)
+           ) |
+           Ui::pinSize(previewSize.cast<Math::Au>());
+}
+
+Ui::Child _printPreviewMobile(State const& s) {
+    Ui::Children pages;
+    for (usize i = 0; i < s.pages.len(); ++i) {
+        pages.pushBack(_printPaper(s, i));
+    }
+
+    return Ui::hflow(
+               8_au,
+               Math::Align::CENTER,
+               std::move(pages)
+           ) |
+           Ui::insets(32_au) |
+           Ui::hscroll();
+}
+
+Ui::Child _printPreview(State const& s) {
+    Ui::Children pages;
+    for (usize i = 0; i < s.pages.len(); ++i) {
+        pages.pushBack(_printPaper(s, i));
+    }
+
+    return Ui::vflow(
+               8_au,
+               Math::Align::CENTER,
+               std::move(pages)
+           ) |
+           Ui::insets(32_au) |
+           Ui::vscroll();
+}
+
+void _printPDF(State const& s) {
+    auto printer = FilePrinter::create(Ref::Uti::PUBLIC_PDF).expect();
+    for (usize i = 0; i < s.pages.len(); ++i) {
+        auto page = s.pages[i];
+        page.replay(printer->beginPage(page.size().cast<f64>())).expect();
+    }
+    printer->save(Ref::parseUrlOrPath("./output.pdf", Sys::globalEnv().cwd())).expect();
+}
+
+Ui::Child _destinationSelect() {
+    return Kr::select(
+        Kr::selectValue("Save as PDF"s),
+        [] -> Ui::Children {
+            return {
+                Kr::selectGroup({
+                    Kr::selectLabel("Save as"s),
+                    Kr::selectItem(Some(Ui::SINK<>), "Save as PDF"s),
+                    Kr::selectItem(Some(Ui::SINK<>), "Save as Image"s),
+                }),
+                Kr::separator(),
+                Kr::selectGroup({
+                    Kr::selectLabel("Printers"s),
+                    Kr::selectItem(Some(Ui::SINK<>), "Epson ET-8550"s),
+                    Kr::selectItem(Some(Ui::SINK<>), "HP DeskJet 2700"s),
+                }),
+                Kr::separator(),
+                Kr::selectItem(Some(Ui::SINK<>), "Add printer..."s)
+            };
+        }
+    );
+}
+
+Ui::Child _paperSelect(State const& s) {
+    return Kr::select(Kr::selectValue(s.settings.stock.name), [] -> Ui::Children {
+        Vec<Ui::Child> groups;
+
+        bool first = false;
+        for (auto& serie : SERIES) {
+            Vec<Ui::Child> items;
+            items.pushBack(Kr::selectLabel(serie.name));
+            for (auto const& stock : serie.stocks) {
+                items.pushBack(Kr::selectItem(Some(Model::bind<ChangePaper>(stock)), stock.name));
+            }
+
+            if (not first)
+                groups.pushBack(Kr::separator());
+            groups.pushBack(Kr::selectGroup(std::move(items)));
+
+            first = false;
+        }
+
+        return groups;
+    });
+}
+
+Ui::Child _printSettings(State const& s) {
+    return Ui::vflow(
+        4_au,
+        Ui::vflow(
+            Kr::rowContent(
+                NONE,
+                "Destination"s,
+                NONE,
+                Some(_destinationSelect())
+            ),
+            Kr::selectRow(
+                Kr::selectValue("1"s),
+                [] -> Ui::Children {
+                    return {
+                        Kr::selectItem(Some(Ui::SINK<>), "1"s),
+                        Kr::selectItem(Some(Ui::SINK<>), "2"s),
+                        Kr::selectItem(Some(Ui::SINK<>), "3"s),
+                        Kr::selectItem(Some(Ui::SINK<>), "4"s),
+                        Kr::selectItem(Some(Ui::SINK<>), "5"s),
+                    };
+                },
+                "Copies"s
+            ),
+            Kr::selectRow(
+                Kr::selectValue("All"s),
+                [] -> Ui::Children {
+                    return {
+                        Kr::selectItem(Some(Ui::SINK<>), "All"s),
+                        Kr::selectItem(Some(Ui::SINK<>), "Odd pages only"s),
+                        Kr::selectItem(Some(Ui::SINK<>), "Even pages only"s),
+                        Kr::selectItem(Some(Ui::SINK<>), "Custom"s),
+                    };
+                },
+                "Pages"s
+            ),
+            Kr::selectRow(
+                Kr::selectValue(
+                    s.settings.orientation == Orientation::PORTRAIT
+                        ? "Portrait"s
+                        : "Landscape"s
+                ),
+                [] -> Ui::Children {
+                    return {
+                        Kr::selectItem(Some(Model::bind<ChangeOrientation>(Orientation::PORTRAIT)), "Portrait"s),
+                        Kr::selectItem(Some(Model::bind<ChangeOrientation>(Orientation::LANDSCAPE)), "Landscape"s),
+                    };
+                },
+                "Orientation"s
+            )
+        ) | Kr::scaffoldContent(),
+        Kr::treeRow(
+            NONE,
+            "More settings"s,
+            NONE,
+            Ui::Slots{[&] -> Ui::Children {
+                return {
+                    Kr::rowContent(
+                        NONE,
+                        "Paper"s,
+                        NONE,
+                        Some(_paperSelect(s))
+                    ),
+                    Kr::selectRow(
+                        Kr::selectValue("1"s),
+                        [] -> Ui::Children {
+                            return {
+                                Kr::selectItem(Some(Ui::SINK<>), "1"s),
+                                Kr::selectItem(Some(Ui::SINK<>), "2"s),
+                                Kr::selectItem(Some(Ui::SINK<>), "4"s),
+                                Kr::selectItem(Some(Ui::SINK<>), "6"s),
+                                Kr::selectItem(Some(Ui::SINK<>), "9"s),
+                                Kr::selectItem(Some(Ui::SINK<>), "16"s),
+                            };
+                        },
+                        "Page per sheet"s
+                    ),
+                    Kr::selectRow(
+                        Kr::selectValue(Io::format("{}", Io::cased(s.settings.margins, Io::Case::CAPITAL))),
+                        [] -> Ui::Children {
+                            return {
+                                Kr::selectItem(Some(Model::bind<ChangeMargin>(MarginOption::NONE)), "None"s),
+                                Kr::selectItem(Some(Model::bind<ChangeMargin>(MarginOption::MINIMUM)), "Minimum"s),
+                                Kr::selectItem(Some(Model::bind<ChangeMargin>(MarginOption::DEFAULT)), "Default"s),
+                                Kr::selectItem(Some(Model::bind<ChangeMargin>(Math::InsetsAu{})), "Custom"s),
+                            };
+                        },
+                        "Margins"s
+                    ),
+
+                    Kr::numberRow(
+                        s.settings.scale,
+                        [](auto& n, f64 scale) {
+                            Model::bubble<ChangeScale>(n, ChangeScale{scale});
+                        },
+                        0.1,
+                        "Scale"s
+                    ),
+
+                    Kr::checkboxRow(
+                        s.settings.headerFooter,
+                        [&](auto& n, ...) {
+                            Model::bubble<ToggleHeaderFooter>(n);
+                        },
+                        "Header and footers"s
+                    ),
+                    Kr::checkboxRow(
+                        s.settings.backgroundGraphics,
+                        [&](auto& n, ...) {
+                            Model::bubble<ToggleBackgroundGraphics>(n);
+                        },
+                        "Background graphics"s
+                    ),
+                };
+            }}
+        ) | Kr::scaffoldContent()
+    );
+}
+
+Ui::Child _printControls(State const& s) {
+    return _printSettings(s) |
+           Ui::vscroll() |
+           Ui::grow() |
+           Ui::minSize({280_au, Ui::UNCONSTRAINED});
+}
+
+Ui::Child _printDialog(State const& s) {
+    return Kr::dialogContent({
+        Kr::dialogTitleBar("Print"s),
+        Ui::vflow(
+            4_au,
+            Ui::hflow(
+                4_au,
+                _printPreview(s) | Kr::scaffoldContent() | Ui::grow(),
+                _printControls(s)
+            ) | Ui::insets({0_au, 8_au}) |
+                Ui::grow(),
+            Kr::dialogFooter({
+                Ui::grow(NONE),
+                Kr::dialogCancel(),
+                Kr::dialogAction(Some(Model::bind(PrintAction::PRINT)), "Print"s),
+            })
+        ) | Ui::maxSize({Ui::UNCONSTRAINED, 500_au}) |
+            Ui::grow(),
+    });
+}
+
+Ui::Child _printDialogMobile(State const& s) {
+    return Kr::dialogContent({
+        Kr::dialogTitleBar("Print"s),
+        Kr::separator(),
+        Ui::vflow(
+            _printPreviewMobile(s),
+            Kr::separator(),
+            _printSettings(s)
+        ) | Ui::minSize(500_au) |
+            Ui::vscroll() |
+            Ui::grow(),
+        Kr::separator(),
+        Kr::dialogFooter({
+            Kr::dialogCancel(),
+            Kr::dialogAction(Some(Model::bind(PrintAction::PRINT)), "Print"s),
+        }),
+    });
+}
+
+export Ui::Child printDialog(PrintPreview preview) {
+    return Ui::reducer<Model>({preview}, [](State const& s) {
+        if (App::formFactor == App::FormFactor::MOBILE)
+            return _printDialogMobile(s);
+        return _printDialog(s) | Ui::popoverLayer();
+    });
+}
+
+} // namespace Karm::Print

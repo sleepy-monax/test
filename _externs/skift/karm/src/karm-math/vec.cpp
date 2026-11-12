@@ -1,0 +1,970 @@
+module;
+
+#include <karm/macros>
+
+export module Karm.Math:vec;
+
+import Karm.Core;
+import :au;
+
+namespace Karm::Math {
+
+export template <typename T>
+union Vec2 {
+    using Scalar = T;
+
+    struct {
+        T x, y;
+    };
+
+    struct {
+        T width, height;
+    };
+
+    static Vec2 const ZERO;
+
+    static Vec2 const ONE;
+
+    static Vec2 const MAX;
+
+    Array<T, 2> _els;
+
+    constexpr Vec2()
+        : _els{} {}
+
+    constexpr Vec2(T x, T y)
+        : _els{T(x), T(y)} {}
+
+    constexpr Vec2(T value)
+        : _els{T(value), T(value)} {}
+
+    template <Meta::Convertible<T> U>
+    constexpr Vec2(Vec2<U> const& other)
+        : _els{T{other.x}, T{other.y}} {}
+
+    constexpr Vec2(Vec2 const& other)
+        : _els{other._els} {}
+
+    constexpr Vec2(Vec2&& other)
+        : _els{std::move(other._els)} {}
+
+    constexpr Vec2& operator=(Vec2 const& other) {
+        _els = other._els;
+        return *this;
+    }
+
+    constexpr Vec2& operator=(Vec2&& other) {
+        _els = std::move(other._els);
+        return *this;
+    }
+
+    constexpr ~Vec2() {
+        _els.~Array();
+    }
+
+    constexpr T min() const {
+        return Karm::min(x, y);
+    }
+
+    constexpr T max() const {
+        return Karm::max(x, y);
+    }
+
+    constexpr Vec2 min(Vec2 other) const {
+        return {
+            Karm::min(x, other.x),
+            Karm::min(y, other.y),
+        };
+    }
+
+    constexpr Vec2 max(Vec2 other) const {
+        return {
+            Karm::max(x, other.x),
+            Karm::max(y, other.y),
+        };
+    }
+
+    constexpr Vec2 abs() const {
+        return {Math::abs(x), Math::abs(y)};
+    }
+
+    constexpr T dot(Vec2 other) const {
+        return x * other.x + y * other.y;
+    }
+
+    constexpr T cross(Vec2 other) const {
+        return x * other.y - y * other.x;
+    }
+
+    constexpr T len() const {
+        return sqrt(dot(*this));
+    }
+
+    constexpr T lenSq() const {
+        return dot(*this);
+    }
+
+    constexpr T dist(Vec2 other) const {
+        return (*this - other).len();
+    }
+
+    constexpr T distSq(Vec2 other) const {
+        return (*this - other).lenSq();
+    }
+
+    constexpr Vec2 unit() const {
+        return Vec2{x, y} / len();
+    }
+
+    constexpr T angle() const {
+        return atan2(y, x);
+    }
+
+    constexpr Vec2 rotate(T angle) const {
+        T c = cos(angle);
+        T s = sin(angle);
+        return {x * c - y * s, x * s + y * c};
+    }
+
+    constexpr Vec2 normal() const {
+        return {-y, x};
+    }
+
+    constexpr Vec2 normalInv() const {
+        return {y, -x};
+    }
+
+    constexpr T angleWith(Vec2 other) const {
+        auto r = unit().dot(other.unit());
+        auto sign = (x * other.y < y * other.x) ? -1.0 : 1.0;
+        return sign * acos(r);
+    }
+
+    constexpr Vec2 snapToDiagonal() const {
+        auto side = Karm::max(
+            Math::abs(x),
+            Math::abs(y)
+        );
+
+        T sx = x < 0 ? -1 : 1;
+        T sy = y < 0 ? -1 : 1;
+
+        if (Math::epsilonEq(x, (T)0))
+            sx = sy;
+
+        if (Math::epsilonEq(y, (T)0))
+            sy = sx;
+
+        return {sx * side, sy * side};
+    }
+
+    Vec2 projectAlong(Vec2 direction, T distance) {
+        return *this + (direction * distance);
+    }
+
+    Vec2 rotateAround(Vec2 center, T r) {
+        T rs = sin(r);
+        T rc = cos(r);
+
+        T px = x - center.x;
+        T py = y - center.y;
+
+        return {
+            px * rc - py * rs + center.x,
+            px * rs + py * rc + center.y,
+        };
+    }
+
+    constexpr T operator[](isize i) const {
+        return _els[i];
+    }
+
+    constexpr Vec2 operator+(T const& other) const {
+        return {x + other, y + other};
+    }
+
+    constexpr Vec2 operator-(T const& other) const {
+        return {x - other, y - other};
+    }
+
+    constexpr Vec2 operator*(T const& other) const {
+        return {x * other, y * other};
+    }
+
+    constexpr Vec2 operator/(T const& other) const {
+        return {x / other, y / other};
+    }
+
+    template <typename U>
+    constexpr auto operator+(Vec2<U> const& other) const
+        -> Vec2<decltype(T{} + U{})> {
+        return {x + other.x, y + other.y};
+    }
+
+    template <typename U>
+    constexpr auto operator-(Vec2<U> const& other) const
+        -> Vec2<decltype(T{} - U{})> {
+        return {x - other.x, y - other.y};
+    }
+
+    template <typename U>
+    constexpr auto operator*(Vec2<U> const& other) const
+        -> Vec2<decltype(T{} * U{})> {
+        return {x * other.x, y * other.y};
+    }
+
+    template <typename U>
+    constexpr auto operator/(Vec2<U> const& other) const
+        -> Vec2<decltype(T{} / U{})> {
+        return {x / other.x, y / other.y};
+    }
+
+    template <typename U>
+    constexpr Vec2& operator+=(Vec2<U> const& other) {
+        x += other.x;
+        y += other.y;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec2& operator-=(Vec2<U> const& other) {
+        x -= other.x;
+        y -= other.y;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec2& operator*=(Vec2<U> const& other) {
+        x *= other.x;
+        y *= other.y;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec2& operator/=(Vec2<U> const& other) {
+        x /= other.x;
+        y /= other.y;
+        return *this;
+    }
+
+    constexpr Vec2 operator-() const {
+        return {-x, -y};
+    }
+
+    template <typename U>
+    constexpr Vec2<U> cast() const {
+        return {
+            static_cast<U>(x),
+            static_cast<U>(y),
+        };
+    }
+
+    template <typename U>
+    constexpr U into() const {
+        return U{x, y};
+    }
+
+    Vec2 floor() const {
+        return {Math::floor(x), Math::floor(y)};
+    }
+
+    Vec2 ceil() const {
+        return {Math::ceil(x), Math::ceil(y)};
+    }
+
+    Vec2 round() const {
+        return {Math::round(x), Math::round(y)};
+    }
+
+    Vec2<isize> floori() const {
+        return {Math::floori(x), Math::floori(y)};
+    }
+
+    Vec2<isize> ceili() const {
+        return {Math::ceili(x), Math::ceili(y)};
+    }
+
+    Vec2<isize> roundi() const {
+        return {Math::roundi(x), Math::roundi(y)};
+    }
+
+    bool hasNan() const {
+        return isNan(x) or isNan(y);
+    }
+
+    auto operator<=>(Vec2 const& other) const {
+        return _els <=> other._els;
+    }
+
+    bool operator==(Vec2 const& other) const {
+        return _els == other._els;
+    }
+
+    void repr(Io::Emit& e) const {
+        e("(vec {} {})", x, y);
+    }
+
+    constexpr auto map(auto f) const {
+        using U = decltype(f(x));
+        return Vec2<U>{f(x), f(y)};
+    }
+
+    Res<> serialize(Serde::Serializer& ser) const {
+        return Serde::serialize(ser, _els);
+    }
+
+    static Res<Vec2> deserialize(Serde::Deserializer& de) {
+        Vec2 res;
+        res._els = try$(Serde::deserialize<decltype(_els)>(de));
+        return Ok(std::move(res));
+    }
+
+    void hash(Meta::Derive<Hasher> auto& h) const {
+        Karm::hash(h, x);
+        Karm::hash(h, y);
+    }
+};
+
+template <typename T>
+Vec2<T> operator+(T const& lhs, Vec2<T> const& rhs) {
+    return rhs + lhs;
+}
+
+template <typename T>
+Vec2<T> operator-(T const& lhs, Vec2<T> const& rhs) {
+    return rhs - lhs;
+}
+
+template <typename T>
+Vec2<T> operator*(T const& lhs, Vec2<T> const& rhs) {
+    return rhs * lhs;
+}
+
+template <typename T>
+Vec2<T> operator/(T const& lhs, Vec2<T> const& rhs) {
+    return rhs / lhs;
+}
+
+template <typename T>
+constexpr Vec2<T> Vec2<T>::ZERO = {};
+
+template <typename T>
+constexpr Vec2<T> Vec2<T>::ONE = {1};
+
+template <typename T>
+constexpr Vec2<T> Vec2<T>::MAX = {Limits<T>::MAX};
+
+export using Vec2i = Vec2<isize>;
+
+export using Vec2u = Vec2<usize>;
+
+export using Vec2f = Vec2<f64>;
+
+export template <typename T>
+bool epsilonEq(Vec2<T> const& lhs, Vec2<T> const& rhs, T epsilon = Limits<T>::EPSILON) {
+    return epsilonEq(lhs.x, rhs.x, epsilon) and
+           epsilonEq(lhs.y, rhs.y, epsilon);
+}
+
+export template <typename T>
+union Vec3 {
+    using Scalar = T;
+
+    struct {
+        T x, y, z;
+    };
+
+    struct {
+        T r, g, b;
+    };
+
+    struct {
+
+        Vec2<T> xy;
+        T _z;
+    };
+
+    struct {
+        T _x;
+        Vec2<T> yz;
+    };
+
+    Array<T, 3> _els;
+
+    constexpr Vec3()
+        : _els{} {}
+
+    constexpr Vec3(T x, T y, T z)
+        : _els{x, y, z} {}
+
+    constexpr Vec3(T value)
+        : _els{value, value, value} {}
+
+    constexpr Vec3(Vec2<T> vec, T z)
+        : _els{vec.x, vec.y, z} {}
+
+    template <Meta::Convertible<T> U>
+    constexpr Vec3(Vec3<U> const& other)
+        : _els{other._els} {}
+
+    constexpr Vec3(Vec3 const& other)
+        : _els{other._els} {}
+
+    constexpr Vec3(Vec3&& other)
+        : _els{std::move(other._els)} {}
+
+    constexpr Vec3& operator=(Vec3 const& other) {
+        _els = other._els;
+        return *this;
+    }
+
+    constexpr Vec3& operator=(Vec3&& other) {
+        _els = std::move(other._els);
+        return *this;
+    }
+
+    constexpr ~Vec3() {
+        _els.~Array();
+    }
+
+    constexpr Vec2<T> xz() const {
+        return {x, y};
+    }
+
+    constexpr T min() const {
+        return Karm::min(x, y, z);
+    }
+
+    constexpr T max() const {
+        return Karm::max(x, y, z);
+    }
+
+    constexpr Vec3 min(Vec3 const& other) const {
+        return {
+            Karm::min(x, other.x),
+            Karm::min(y, other.y),
+            Karm::min(z, other.z),
+        };
+    }
+
+    constexpr Vec3 max(Vec3<T> const& other) const {
+        return {
+            Karm::max(x, other.x),
+            Karm::max(y, other.y),
+            Karm::max(z, other.z),
+        };
+    }
+
+    constexpr T dot(Vec3 const& other) const {
+        return x * other.x + y * other.y + z * other.z;
+    }
+
+    constexpr Vec3 cross(Vec3 const& other) const {
+        return {
+            y * other.z - z * other.y,
+            z * other.x - x * other.z,
+            x * other.y - y * other.x,
+        };
+    }
+
+    constexpr Vec3 abs() const {
+        return {Math::abs(x), Math::abs(y), Math::abs(z)};
+    }
+
+    constexpr T lenSq() const {
+        return dot(*this);
+    }
+
+    constexpr T len() const {
+        return sqrt(lenSq());
+    }
+
+    constexpr T dist(Vec3 const& other) const {
+        return (*this - other).len();
+    }
+
+    constexpr T distSq(Vec3 const& other) const {
+        return (*this - other).lenSq();
+    }
+
+    constexpr Vec3 unit() const {
+        T l = len();
+        return {x / l, y / l, z / l};
+    }
+
+    constexpr Vec3 unitOr(Vec3 fallback) const {
+        T l = len();
+        if (l == T{})
+            return fallback;
+        return *this / l;
+    }
+
+    constexpr T operator[](isize i) {
+        return _els[i];
+    }
+
+    constexpr Vec3 operator+(T const& other) const {
+        return {x + other, y + other, z + other};
+    }
+
+    constexpr Vec3 operator-(T const& other) const {
+        return {x - other, y - other, z - other};
+    }
+
+    constexpr Vec3 operator*(T const& other) const {
+        return {x * other, y * other, z * other};
+    }
+
+    constexpr Vec3 operator/(T const& other) const {
+        return {x / other, y / other, z / other};
+    }
+
+    template <typename U>
+    constexpr auto operator+(Vec3<U> const& other) const
+        -> Vec3<decltype(T{} + U{})> {
+        return {x + other.x, y + other.y, z + other.z};
+    }
+
+    template <typename U>
+    constexpr auto operator-(Vec3<U> const& other) const
+        -> Vec3<decltype(T{} - U{})> {
+        return {x - other.x, y - other.y, z - other.z};
+    }
+
+    template <typename U>
+    constexpr auto operator*(Vec3<U> const& other) const
+        -> Vec3<decltype(T{} * U{})> {
+        return {x * other.x, y * other.y, z * other.z};
+    }
+
+    template <typename U>
+    constexpr auto operator/(Vec3<U> const& other) const
+        -> Vec3<decltype(T{} / U{})> {
+        return {x / other.x, y / other.y, z / other.z};
+    }
+
+    template <typename U>
+    constexpr Vec3& operator+=(Vec3<U> const& other) {
+        x += other.x;
+        y += other.y;
+        z += other.z;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec3& operator-=(Vec3<U> const& other) {
+        x -= other.x;
+        y -= other.y;
+        z -= other.z;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec3& operator*=(Vec3<U> const& other) {
+        x *= other.x;
+        y *= other.y;
+        z *= other.z;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec3& operator/=(Vec3<U> const& other) {
+        x /= other.x;
+        y /= other.y;
+        z /= other.z;
+        return *this;
+    }
+
+    constexpr Vec3 operator-() const {
+        return {-x, -y, -z};
+    }
+
+    template <typename U>
+    constexpr Vec3<U> cast() const {
+        return {
+            static_cast<U>(x),
+            static_cast<U>(y),
+            static_cast<U>(z),
+        };
+    }
+
+    template <typename U>
+    constexpr U into() const {
+        return U{x, y, z};
+    }
+
+    Vec3 floor() {
+        return {Math::floor(x), Math::floor(y), Math::floor(z)};
+    }
+
+    Vec3 ceil() {
+        return {Math::ceil(x), Math::ceil(y), Math::ceil(z)};
+    }
+
+    Vec3 round() {
+        return {Math::round(x), Math::round(y), Math::round(z)};
+    }
+
+    bool hasNan() const {
+        return isNan(x) or isNan(y) or isNan(z);
+    }
+
+    auto operator<=>(Vec3 const& other) const {
+        return _els <=> other._els;
+    }
+
+    bool operator==(Vec3 const& other) const {
+        return _els == other._els;
+    }
+
+    void repr(Io::Emit& e) const {
+        e("(vec {} {} {})", x, y, z);
+    }
+
+    constexpr auto map(auto f) const {
+        using U = decltype(f(x));
+        return Vec3<U>{f(x), f(y), f(z)};
+    }
+
+    Res<> serialize(Serde::Serializer& ser) const {
+        return Serde::serialize(ser, _els);
+    }
+
+    static Res<Vec3> deserialize(Serde::Deserializer& de) {
+        Vec3 res;
+        res._els = try$(Serde::deserialize<decltype(_els)>(de));
+        return Ok(std::move(res));
+    }
+
+    void hash(Meta::Derive<Hasher> auto& h) const {
+        Karm::hash(h, x);
+        Karm::hash(h, y);
+        Karm::hash(h, z);
+    }
+};
+
+template <typename T>
+constexpr Vec3<T> operator+(T const& lhs, Vec3<T> const& rhs) {
+    return {lhs + rhs.x, lhs + rhs.y, lhs + rhs.z};
+}
+
+template <typename T>
+constexpr Vec3<T> operator-(T const& lhs, Vec3<T> const& rhs) {
+    return {lhs - rhs.x, lhs - rhs.y, lhs - rhs.z};
+}
+
+template <typename T>
+constexpr Vec3<T> operator*(T const& lhs, Vec3<T> const& rhs) {
+    return {lhs * rhs.x, lhs * rhs.y, lhs * rhs.z};
+}
+
+template <typename T>
+constexpr Vec3<T> operator/(T const& lhs, Vec3<T> const& rhs) {
+    return {lhs / rhs.x, lhs / rhs.y, lhs / rhs.z};
+}
+
+export using Vec3i = Vec3<isize>;
+
+export using Vec3u = Vec3<usize>;
+
+export using Vec3f = Vec3<f64>;
+
+export template <typename T>
+bool epsilonEq(Vec3<T> const& lhs, Vec3<T> const& rhs, T epsilon) {
+    return epsilonEq(lhs.x, rhs.x, epsilon) and
+           epsilonEq(lhs.y, rhs.y, epsilon) and
+           epsilonEq(lhs.z, rhs.z, epsilon);
+}
+
+export template <typename T>
+union Vec4 {
+    using Scalar = T;
+
+    struct {
+        T x, y, z, w;
+    };
+
+    struct {
+        T r, g, b, a;
+    };
+
+    Vec3<T> rgb;
+
+    Vec3<T> xyz;
+
+    struct {
+        Vec2<T> xy;
+        Vec2<T> zw;
+    };
+
+    Array<T, 4> _els;
+
+    constexpr Vec4()
+        : _els{} {}
+
+    constexpr Vec4(T x, T y, T z, T w)
+        : _els{x, y, z, w} {}
+
+    constexpr Vec4(T value)
+        : _els{value, value, value, value} {}
+
+    constexpr Vec4(Vec2<T> vec, T z, T w)
+        : _els{vec.x, vec.y, z, w} {}
+
+    constexpr Vec4(Vec3<T> vec, T w)
+        : _els{vec.x, vec.y, vec.z, w} {}
+
+    template <Meta::Convertible<T> U>
+    constexpr Vec4(Vec4<U> const& other)
+        : _els{other._els} {}
+
+    constexpr Vec4(Vec4 const& other)
+        : _els{other._els} {}
+
+    constexpr Vec4(Vec4&& other)
+        : _els{std::move(other._els)} {}
+
+    constexpr Vec4& operator=(Vec4 const& other) {
+        _els = other._els;
+        return *this;
+    }
+
+    constexpr Vec4& operator=(Vec4&& other) {
+        _els = std::move(other._els);
+        return *this;
+    }
+
+    constexpr ~Vec4() {
+        _els.~Array();
+    }
+
+    constexpr T min() const {
+        return min(x, y, z, w);
+    }
+
+    constexpr T max() const {
+        return max(x, y, z, w);
+    }
+
+    constexpr Vec4 min(Vec4 const& other) const {
+        return {
+            Karm::min(x, other.x),
+            Karm::min(y, other.y),
+            Karm::min(z, other.z),
+            Karm::min(w, other.w),
+        };
+    }
+
+    constexpr Vec4 max(Vec4 const& other) const {
+        return {
+            Karm::max(x, other.x),
+            Karm::max(y, other.y),
+            Karm::max(z, other.z),
+            Karm::max(w, other.w),
+        };
+    }
+
+    constexpr T dot(Vec4 const& other) const {
+        return x * other.x + y * other.y + z * other.z + w * other.w;
+    }
+
+    constexpr T len() const {
+        return sqrt(dot(*this));
+    }
+
+    constexpr T dist(Vec4 const& other) const {
+        return (*this - other).len();
+    }
+
+    constexpr Vec4 unit() const {
+        T l = len();
+        return {x / l, y / l, z / l, w / l};
+    }
+
+    constexpr T operator[](isize i) {
+        return _els[i];
+    }
+
+    constexpr Vec4 operator+(T const& other) const {
+        return {x + other, y + other, z + other, w + other};
+    }
+
+    constexpr Vec4 operator-(T const& other) const {
+        return {x - other, y - other, z - other, w - other};
+    }
+
+    constexpr Vec4 operator*(T const& other) const {
+        return {x * other, y * other, z * other, w * other};
+    }
+
+    constexpr Vec4 operator/(T const& other) const {
+        return {x / other, y / other, z / other, w / other};
+    }
+
+    template <typename U>
+    constexpr auto operator+(Vec4<U> const& other) const
+        -> Vec4<decltype(T{} + U{})> {
+        return {x + other.x, y + other.y, z + other.z, w + other.w};
+    }
+
+    template <typename U>
+    constexpr auto operator-(Vec4<U> const& other) const
+        -> Vec4<decltype(T{} - U{})> {
+        return {x - other.x, y - other.y, z - other.z, w - other.w};
+    }
+
+    template <typename U>
+    constexpr auto operator*(Vec4<U> const& other) const
+        -> Vec4<decltype(T{} * U{})> {
+        return {x * other.x, y * other.y, z * other.z, w * other.w};
+    }
+
+    template <typename U>
+    constexpr auto operator/(Vec4<U> const& other) const
+        -> Vec4<decltype(T{} / U{})> {
+        return {x / other.x, y / other.y, z / other.z, w / other.w};
+    }
+
+    template <typename U>
+    constexpr Vec4& operator+=(Vec4<U> const& other) {
+        x += other.x;
+        y += other.y;
+        z += other.z;
+        w += other.w;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec4& operator-=(Vec4<U> const& other) {
+        x -= other.x;
+        y -= other.y;
+        z -= other.z;
+        w -= other.w;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec4& operator*=(Vec4<U> const& other) {
+        x *= other.x;
+        y *= other.y;
+        z *= other.z;
+        w *= other.w;
+        return *this;
+    }
+
+    template <typename U>
+    constexpr Vec4& operator/=(Vec4<U> const& other) {
+        x /= other.x;
+        y /= other.y;
+        z /= other.z;
+        w /= other.w;
+        return *this;
+    }
+
+    constexpr Vec4 operator-() const {
+        return {-x, -y, -z, -w};
+    }
+
+    template <typename U>
+    constexpr Vec4<U> cast() const {
+        return {
+            static_cast<U>(x),
+            static_cast<U>(y),
+            static_cast<U>(z),
+            static_cast<U>(w),
+        };
+    }
+
+    template <typename U>
+    constexpr U into() const {
+        return U{x, y, z, w};
+    }
+
+    Vec4 floor() {
+        return {Math::floor(x), Math::floor(y), Math::floor(z), Math::floor(w)};
+    }
+
+    Vec4 ceil() {
+        return {Math::ceil(x), Math::ceil(y), Math::ceil(z), Math::ceil(w)};
+    }
+
+    Vec4 round() {
+        return {Math::round(x), Math::round(y), Math::round(z), Math::round(w)};
+    }
+
+    bool hasNan() const {
+        return isNan(x) or isNan(y) or isNan(z) or isNan(w);
+    }
+
+    auto operator<=>(Vec4 const& other) const {
+        return _els <=> other._els;
+    }
+
+    bool operator==(Vec4 const& other) const {
+        return _els == other._els;
+    }
+
+    void repr(Io::Emit& e) const {
+        e("(vec {} {} {} {})", x, y, z, w);
+    }
+
+    constexpr auto map(auto f) const {
+        using U = decltype(f(x));
+        return Vec4<U>{f(x), f(y), f(z), f(w)};
+    }
+
+    Res<> serialize(Serde::Serializer& ser) const {
+        return Serde::serialize(ser, _els);
+    }
+
+    static Res<Vec4> deserialize(Serde::Deserializer& de) {
+        Vec4 res;
+        res._els = try$(Serde::deserialize<decltype(_els)>(de));
+        return Ok(std::move(res));
+    }
+
+    void hash(Meta::Derive<Hasher> auto& h) const {
+        Karm::hash(h, x);
+        Karm::hash(h, y);
+        Karm::hash(h, z);
+        Karm::hash(h, w);
+    }
+};
+
+template <typename T>
+constexpr Vec4<T> operator+(T const& lhs, Vec4<T> const& rhs) {
+    return {lhs + rhs.x, lhs + rhs.y, lhs + rhs.z, lhs + rhs.w};
+}
+
+template <typename T>
+constexpr Vec4<T> operator-(T const& lhs, Vec4<T> const& rhs) {
+    return {lhs - rhs.x, lhs - rhs.y, lhs - rhs.z, lhs - rhs.w};
+}
+
+template <typename T>
+constexpr Vec4<T> operator*(T const& lhs, Vec4<T> const& rhs) {
+    return {lhs * rhs.x, lhs * rhs.y, lhs * rhs.z, lhs * rhs.w};
+}
+
+template <typename T>
+constexpr Vec4<T> operator/(T const& lhs, Vec4<T> const& rhs) {
+    return {lhs / rhs.x, lhs / rhs.y, lhs / rhs.z, lhs / rhs.w};
+}
+
+export using Vec4i = Vec4<isize>;
+
+export using Vec4u = Vec4<usize>;
+
+export using Vec4f = Vec4<f64>;
+
+export using Vec2Au = Vec2<Au>;
+
+export template <typename T>
+bool epsilonEq(Vec4<T> const& lhs, Vec4<T> const& rhs, T epsilon) {
+    return epsilonEq(lhs.x, rhs.x, epsilon) and
+           epsilonEq(lhs.y, rhs.y, epsilon) and
+           epsilonEq(lhs.z, rhs.z, epsilon) and
+           epsilonEq(lhs.w, rhs.w, epsilon);
+}
+
+} // namespace Karm::Math

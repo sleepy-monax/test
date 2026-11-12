@@ -1,0 +1,16 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.component.v1",
+    "id": "karm-core.posix",
+    "type": "lib",
+    "enableIf": {
+        "sys": [
+            "linux",
+            "darwin",
+            "freebsd"
+        ]
+    },
+    "requires": [],
+    "provides": [
+        "karm-core.impl"
+    ]
+}

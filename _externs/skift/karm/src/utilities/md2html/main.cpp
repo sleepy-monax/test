@@ -1,0 +1,42 @@
+#include <karm/entry>
+
+import Karm.Core;
+import Karm.Cli;
+import Karm.Md;
+import Karm.Ref;
+import Karm.Sys;
+
+using namespace Karm;
+using namespace Karm::Literals;
+
+Async::Task<> entryPointAsync(Sys::Env& env, Async::CancellationToken) {
+    auto urlArg = Cli::operand<Ref::Url>("url"s, "Markdown document to convert to HTML"s);
+
+    Cli::Command cmd{
+        "md2html"s,
+        "Convert a Markdown document to HTML using karm-md."s,
+        {
+            {
+                "Arguments"s,
+                {
+                    urlArg,
+                },
+            },
+        },
+    };
+
+    co_try$(cmd.exec(env));
+
+    if (not cmd)
+        co_return Ok();
+
+    auto markdown = co_try$(Sys::readAllText<Utf8>(urlArg.value()));
+    auto document = Md::parse(markdown);
+    auto props = co_try$(Md::RenderProps::from(document.frontmatter));
+    auto html = Md::render(document, props);
+
+    co_try$(Sys::out().writeStr(html.str()));
+    co_try$(Sys::out().flush());
+
+    co_return Ok();
+}

@@ -1,0 +1,36 @@
+# Karm'ism
+
+Karm is a a modern C++ framework that makes the language safer and easier. This document will guide you in using the library to its fullest potential 💪😤
+
+## Choosing a reference type
+
+We avoid using raw pointers at all costs. The following decision tree should help you find a suitable alternative for your use case.
+
+![Choosing a reference type](./references.png)
+
+**Legend**
+
+- `T&` - [Basic C++ reference type](https://en.cppreference.com/w/cpp/language/reference). Provides a way to refer to an existing object without taking ownership.
+- `Opt<T&>` - An optional reference type that can either hold a reference to an object or be empty (null). Useful for cases where a reference may not always be available.
+- `Slice<T>` - Represents a view over a contiguous sequence of elements (e.g., arrays or vectors). It does not own the elements but allows safe, bounds-checked access.
+- `Cursor<T>` - A pointer-like structure for iterating through elements with additional context or state information (e.g., current position in a stream).
+- `T` - The base type. Ownership and reference semantics are determined by the context in which it is used (e.g., passed by value or reference).
+- `Box<T>` - An owning smart pointer type that manages heap-allocated objects. Ensures single ownership and automatic deallocation when no longer needed.
+- `Rc<T>` - A type that enforces ownership semantics and resource safety, often used for unique, non-copyable resources.
+- `T*` - Raw pointer. Gateway to hell, don't use it unless you have a ***really*** good reason. (Hint: you don't)
+
+## `unwrap()` vs `expect()`
+
+Whether an accessor can panic is part of its name:
+
+- `expect()` - Can panic. Use it when the value is only there if the program is in the right state: an empty `Opt<T>`, an error in `Res<T>`, the wrong type in `Union<Ts...>::expect<T>()`, an unresolved `Promise<T>`, or a failed downcast with `Rc<T>::expect<U>()`. It takes an optional message that is shown if it panics.
+- `unwrap()` - Cannot panic in normal code. Use it to get at the value inside a type that always holds one: `Box<T>`, `Rc<T>`, `Some<T>`, `Ok<T>`...
+
+```cpp
+Opt<int> maybe = parse(str);
+int value = maybe.expect("expected a number");
+
+Rc<Node> node = makeRc<Button>();
+auto& button = node.expect<Button>();
+Node& base = node.unwrap();
+```

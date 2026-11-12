@@ -1,0 +1,324 @@
+export module Karm.Kira:colorInput;
+
+import Karm.App;
+import Karm.Ui;
+import Karm.Gfx;
+import Karm.Math;
+
+import :dialog;
+
+using namespace Karm::Math::Literals;
+
+namespace Karm::Kira {
+
+// MARK: Hsv Input -------------------------------------------------------------
+
+struct HsvSquare : Ui::View<HsvSquare> {
+    Gfx::Hsv _value;
+    Ui::Send<Gfx::Hsv> _onChange;
+    Ui::MouseListener _mouseListener;
+
+    HsvSquare(Gfx::Hsv value, Ui::Send<Gfx::Hsv> onChange)
+        : _value{value}, _onChange{std::move(onChange)} {}
+
+    void reconcile(HsvSquare& o) override {
+        _value = o._value;
+        _onChange = std::move(o._onChange);
+    }
+
+    auto makeHsvSquare() {
+        auto surf = Gfx::Image::alloc({256, 256});
+
+        for (isize y = 0; y < surf->height(); y++) {
+            for (isize x = 0; x < surf->width(); x++) {
+                surf->mutPixels().store(
+                    {x, y},
+                    Gfx::hsvToRgb({
+                        _value.hue,
+                        (x / (f64)surf->width()),
+                        1 - (y / (f64)surf->height()),
+                    })
+                );
+            }
+        }
+
+        return surf;
+    }
+
+    Gfx::Hsv sampleHsv(Math::Vec2Au pos) {
+        return {
+            _value.hue,
+            pos.x / bound().width,
+            1 - pos.y / bound().height,
+        };
+    }
+
+    Gfx::Color sampleColor(Math::Vec2Au pos) {
+        return Gfx::hsvToRgb(sampleHsv(pos));
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu) override {
+        g.push();
+        g.clip(bound().cast<f64>());
+
+        auto hsv = makeHsvSquare();
+
+        g.blit(bound().cast<isize>(), hsv);
+
+        Math::Vec2Au pos = {
+            bound().x + bound().width * _value.saturation,
+            bound().y + bound().height * (1 - _value.value),
+        };
+
+        g.fillStyle(Gfx::WHITE);
+        g.fill(Math::Ellipsef{pos.cast<f64>(), 8.});
+
+        g.strokeStyle(
+            Gfx::stroke(
+                Gfx::BLACK.withOpacity(0.25)
+            )
+                .withWidth(1)
+                .withAlign(Gfx::OUTSIDE_ALIGN)
+        );
+        g.stroke();
+
+        g.fillStyle(Gfx::hsvToRgb(_value));
+        g.fill(Math::Ellipsef{pos.cast<f64>(), 6});
+
+        g.pop();
+    }
+
+    void event(App::Event& e) override {
+        _mouseListener.listen(*this, e);
+
+        if (_mouseListener.isPress() and e.is<App::MouseEvent>()) {
+            _value = sampleHsv(_mouseListener.pos());
+            _onChange(*this, _value);
+            Ui::shouldRepaint(*this);
+        }
+    }
+
+    Math::Vec2Au size(Math::Vec2Au, Ui::Hint) override {
+        return {256_au, 256_au};
+    }
+};
+
+export Ui::Child hsvSquare(Gfx::Hsv value, Ui::Send<Gfx::Hsv> onChange) {
+    return makeRc<HsvSquare>(value, std::move(onChange));
+}
+
+static Ui::Child _sliderThumb(Gfx::Color color) {
+    return Ui::empty() |
+           Ui::bound() |
+           Ui::aspectRatio(1) |
+           Ui::box({
+               .borderRadii = 99,
+               .borderWidth = 2,
+               .borderFill = Some(Gfx::WHITE),
+               .backgroundFill = Some(color),
+           }) |
+           Ui::box({
+               .padding = 1_au,
+               .borderRadii = 99,
+               .borderWidth = 1,
+               .borderFill = Some(Gfx::BLACK.withOpacity(0.25)),
+           }) |
+           Ui::dragRegion();
+}
+
+export Ui::Child hsvValueSlider(Gfx::Hsv hsv, Ui::Send<Gfx::Hsv> onChange) {
+    auto background =
+        Gfx::Gradient::hlinear()
+            .withColors(
+                Gfx::hsvToRgb(hsv.withValue(0)),
+                Gfx::hsvToRgb(hsv.withValue(1))
+            )
+            .bake();
+
+    return _sliderThumb(Gfx::hsvToRgb(hsv)) |
+           Ui::end() |
+           Ui::slider(hsv.value, [hsv, onChange](auto& n, auto v) {
+               onChange(n, hsv.withValue(v));
+           }) |
+           Ui::box({
+               .padding = 1_au,
+               .borderRadii = 99,
+               .borderWidth = 1,
+               .borderFill = Some(Ui::GRAY100.withOpacity(0.2)),
+               .backgroundFill = Some(background),
+           }) |
+           Ui::maxSize({Ui::UNCONSTRAINED, 18_au});
+}
+
+export Ui::Child hsvSaturationSlider(Gfx::Hsv hsv, Ui::Send<Gfx::Hsv> onChange) {
+    auto background =
+        Gfx::Gradient::hlinear()
+            .withColors(
+                Gfx::hsvToRgb(
+                    hsv
+                        .withValue(1)
+                        .withSaturation(0)
+                ),
+                Gfx::hsvToRgb(
+                    hsv
+                        .withValue(1)
+                        .withSaturation(1)
+                )
+            )
+            .bake();
+
+    return _sliderThumb(Gfx::hsvToRgb(hsv.withValue(1))) |
+           Ui::end() |
+           Ui::slider(hsv.saturation, [hsv, onChange](auto& n, auto v) {
+               onChange(n, hsv.withSaturation(v));
+           }) |
+           Ui::box({
+               .padding = 1_au,
+               .borderRadii = 99,
+               .borderWidth = 1,
+               .borderFill = Some(Ui::GRAY100.withOpacity(0.2)),
+               .backgroundFill = Some(background),
+           }) |
+           Ui::maxSize({Ui::UNCONSTRAINED, 18_au});
+}
+
+export Ui::Child hsvHueSlider(Gfx::Hsv hsv, Ui::Send<Gfx::Hsv> onChange) {
+    return _sliderThumb(Gfx::hsvToRgb(hsv.withSaturation(1).withValue(1))) |
+           Ui::end() |
+           Ui::slider(hsv.hue / 360, [hsv, onChange](auto& n, auto v) {
+               onChange(n, hsv.withHue(v * 360));
+           }) |
+           Ui::box({
+               .padding = 1_au,
+               .borderRadii = 99,
+               .borderWidth = 1,
+               .borderFill = Some(Ui::GRAY100.withOpacity(0.2)),
+               .backgroundFill = Some(Gfx::Gradient::hsv().bake()),
+           }) |
+           Ui::maxSize({Ui::UNCONSTRAINED, 18_au});
+}
+
+// MARK: Color Picker ----------------------------------------------------------
+
+enum struct Page {
+    HSV,
+    PALETTE,
+};
+
+struct State {
+    Page page = Page::HSV;
+    Gfx::Hsv hsv;
+};
+
+struct UpdatePage {
+    Page page;
+};
+
+struct UpdateHsv {
+    Gfx::Hsv hsv;
+
+    UpdateHsv(Gfx::Hsv hsv) : hsv(hsv) {}
+};
+
+using Action = Union<UpdatePage, UpdateHsv>;
+
+Ui::Task<Action> reduce(State& s, Action action) {
+    action.visit(
+        [&](UpdatePage update) {
+            s.page = update.page;
+        },
+        [&](UpdateHsv update) {
+            s.hsv = update.hsv;
+        }
+    );
+
+    return NONE;
+}
+
+using Model = Ui::Model<State, Action, reduce>;
+
+Gfx::Color pickColor(Gfx::Color c) {
+    if (c.luminance() > 0.7)
+        return Gfx::BLACK;
+    return Gfx::WHITE;
+}
+
+export Ui::Child colorPickerDialog() {
+    return Ui::reducer<Model>(
+        {
+            .hsv = Gfx::rgbToHsv(Gfx::BLUE),
+        },
+        [](auto const& s) {
+            auto c = Gfx::hsvToRgb(s.hsv);
+
+            auto preview =
+                Ui::codeLarge(pickColor(c), "#{:02x}{:02x}{:02x}", c.red, c.green, c.blue) |
+                Ui::center() |
+                Ui::minSize(96_au) |
+                Ui::box({
+                    .borderRadii = 6,
+                    .borderWidth = 1,
+                    .borderFill = Some(Ui::GRAY100.withOpacity(0.1)),
+                    .backgroundFill = Some(Gfx::hsvToRgb(s.hsv)),
+                    .shadowStyle = Some(Gfx::BoxShadow::elevated(16, Gfx::hsvToRgb(s.hsv).withOpacity(0.5))),
+                });
+
+            auto content =
+                Ui::vflow(
+                    8_au,
+                    preview,
+                    hsvHueSlider(
+                        s.hsv,
+                        Model::map<UpdateHsv>()
+                    ),
+                    hsvSaturationSlider(
+                        s.hsv,
+                        Model::map<UpdateHsv>()
+                    ),
+                    hsvValueSlider(
+                        s.hsv,
+                        Model::map<UpdateHsv>()
+                    )
+                ) |
+                Ui::minSize({256_au, Ui::UNCONSTRAINED});
+            return dialogContent({
+                dialogTitleBar("Color Picker"s),
+                content | Ui::insets({8_au, 16_au}),
+                dialogFooter({
+                    Ui::grow(NONE),
+                    dialogCancel(),
+                    dialogAction(Some(Ui::SINK<>), "Ok"s),
+                }),
+            });
+        }
+    );
+}
+
+// MARK: Color Input -----------------------------------------------------------
+
+export Ui::Child colorInput(Gfx::Color color, Ui::Send<Gfx::Color>) {
+    auto colorPreview =
+        Ui::empty({18_au, 18_au}) |
+        Ui::box({
+            .margin = 4_au,
+            .borderRadii = 2,
+            .borderWidth = 1,
+            .borderFill = Some(Gfx::GRAY50.withOpacity(0.1)),
+            .backgroundFill = Some(color),
+        });
+
+    auto hexPreview =
+        Ui::codeMedium("#{:02x}{:02x}{:02x}", color.red, color.green, color.blue) | Ui::vcenter();
+
+    return hflow(8_au, Math::Align::CENTER, colorPreview, hexPreview) |
+           Ui::insets({6_au, 12_au, 6_au, 6_au}) |
+           Ui::minSize({Ui::UNCONSTRAINED, 32_au}) |
+           button(
+               Some([](auto& n) {
+                   Ui::showDialog(n, colorPickerDialog());
+               }),
+               Ui::ButtonStyle::outline()
+           );
+}
+
+} // namespace Karm::Kira

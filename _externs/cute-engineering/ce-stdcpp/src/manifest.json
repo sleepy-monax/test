@@ -1,0 +1,20 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.component.v1",
+    "id": "ce-libcpp",
+    "type": "lib",
+    "description": "The ISO C++ Standard Library, ISO/IEC 14882",
+    "props": {
+        "export-headers": "includes"
+    },
+    "enableIf": {
+        "host": [
+            false
+        ]
+    },
+    "requires": [
+        "libc"
+    ],
+    "provides": [
+        "libcpp"
+    ]
+}

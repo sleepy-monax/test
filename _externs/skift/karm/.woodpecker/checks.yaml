@@ -1,0 +1,18 @@
+when:
+  - event: pull_request
+  - event: push
+    branch: main
+
+steps:
+  - name: Build & Test
+    image: ubuntu:24.04
+    commands:
+      - apt-get update
+      - apt-get install -y --no-install-recommends lsb-release curl software-properties-common gnupg
+      - curl -LsSf https://apt.llvm.org/llvm.sh | bash -s -- 22 all
+      - apt-get install -y --no-install-recommends build-essential git ninja-build ccache jq libseccomp-dev liburing-dev pkg-config libunwind-dev
+      - export PATH=/usr/lib/llvm-22/bin:$PATH
+      - curl -LsSf https://astral.sh/uv/install.sh | sh
+      - export PATH="$HOME/.local/bin:$PATH"
+      - uv tool install cutekit@0.13.1
+      - ck test --props:async=epoll

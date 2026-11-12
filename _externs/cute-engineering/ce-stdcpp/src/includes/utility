@@ -1,0 +1,59 @@
+#pragma once
+
+#include <cstddef>
+#include <type_traits>
+
+namespace std {
+
+template <typename T> T declval();
+
+template <typename T> T &declref();
+
+template <typename T> constexpr remove_reference_t<T> &&move(T &&t) noexcept {
+  return static_cast<remove_reference_t<T> &&>(t);
+}
+
+template <typename T> constexpr T &&forward(remove_reference_t<T> &param) {
+  return static_cast<T &&>(param);
+}
+
+template <typename T> constexpr T &&forward(remove_reference_t<T> &&param) {
+  return static_cast<T &&>(param);
+}
+
+template <typename T, typename U = T> constexpr T exchange(T &slot, U &&value) {
+  T old = std::move(slot);
+  slot = std::forward<U>(value);
+  return old;
+}
+
+template <typename T> constexpr void swap(T &lhs, T &rhs) {
+  T tmp = std::move(lhs);
+  lhs = std::move(rhs);
+  rhs = std::move(tmp);
+}
+
+// MARK: Integer Sequence ------------------------------------------------------
+
+template <typename I, I... Seq> class integer_sequence {};
+
+template <typename I, I X, I N, I... Seq> struct _make_seq_helper {
+  using type = typename _make_seq_helper<I, X + 1, N, Seq..., X>::type;
+};
+
+template <typename I, I N, I... Seq> struct _make_seq_helper<I, N, N, Seq...> {
+  using type = integer_sequence<I, Seq...>;
+};
+
+template <typename I, I N>
+using make_integer_sequence = typename _make_seq_helper<I, 0, N>::type;
+
+// MARK: Index Sequence --------------------------------------------------------
+
+template <size_t... Seq>
+using index_sequence = integer_sequence<size_t, Seq...>;
+
+template <size_t N>
+using make_index_sequence = make_integer_sequence<size_t, N>;
+
+} // namespace std

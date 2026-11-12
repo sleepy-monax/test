@@ -1,0 +1,238 @@
+export module Karm.Ui:drag;
+
+import Karm.App;
+import Karm.Gfx;
+import Karm.Math;
+
+import :anim;
+import :layout;
+import :view;
+import :box;
+
+using namespace Karm::Math::Literals;
+
+namespace Karm::Ui {
+
+// MARK: Dismisable ------------------------------------------------------------
+
+export enum struct DismisDir {
+    LEFT = 1 << 0,
+    RIGHT = 1 << 1,
+    TOP = 1 << 2,
+    DOWN = 1 << 3,
+
+    HORIZONTAL = LEFT | RIGHT,
+    VERTICAL = TOP | DOWN,
+};
+
+struct Dismisable :
+    ProxyNode<Dismisable> {
+
+    Send<> _onDismis;
+    Flags<DismisDir> _dir;
+    f64 _threshold;
+
+    Eased2f _drag{};
+    Math::Vec2Au _last{};
+    bool _dismissed{};
+    bool _grabbed{};
+
+    Dismisable(Send<> onDismis, Flags<DismisDir> dir, f64 threshold, Ui::Child child)
+        : ProxyNode(child),
+          _onDismis(std::move(onDismis)),
+          _dir(dir),
+          _threshold(threshold) {}
+
+    void reconcile(Dismisable& o) override {
+        _onDismis = std::move(o._onDismis);
+        _dir = o._dir;
+        _threshold = o._threshold;
+
+        ProxyNode<Dismisable>::reconcile(o);
+    }
+
+    Math::Vec2Au drag() const {
+        return _drag.value().cast<Au>();
+    }
+
+    void dragMove(Math::Vec2f delta) {
+        auto d = _drag.target() + delta;
+
+        d.x = clamp(
+            d.x,
+            (bool)(_dir & DismisDir::LEFT) ? -bound().width.cast<f64>() : 0.0,
+            (bool)(_dir & DismisDir::RIGHT) ? bound().width.cast<f64>() : 0.0
+        );
+
+        d.y = clamp(
+            d.y,
+            (bool)(_dir & DismisDir::TOP) ? -bound().height.cast<f64>() : 0.0,
+            (bool)(_dir & DismisDir::DOWN) ? bound().height.cast<f64>() : 0.0
+        );
+
+        _drag.set(*this, d);
+    }
+
+    void dragEnded() {
+        _grabbed = false;
+        if ((bool)(_dir & DismisDir::HORIZONTAL)) {
+            if (Math::abs(_drag.targetX()) / (f64)bound().width > _threshold) {
+                _drag.animate(*this, {bound().width.cast<f64>() * (_drag.targetX() < 0.0 ? -1.0 : 1), 0}, 0.25, Math::Easing::cubicOut);
+                _dismissed = true;
+            } else {
+                _drag.animate(*this, {0, _drag.targetY()}, 0.25, Math::Easing::exponentialOut);
+            }
+        }
+        if ((bool)(_dir & DismisDir::VERTICAL)) {
+            if (Math::abs(_drag.targetY()) / (f64)bound().height > _threshold) {
+                _drag.animate(*this, {0, bound().height.cast<f64>() * (_drag.targetY() < 0.0 ? -1.0 : 1)}, 0.25, Math::Easing::cubicOut);
+                _dismissed = true;
+            } else {
+                _drag.animate(*this, {_drag.targetX(), 0}, 0.25, Math::Easing::exponentialOut);
+            }
+        }
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu r) override {
+        g.push();
+
+        g.clip(bound().cast<f64>());
+        g.origin(drag().cast<f64>());
+        r.xy = r.xy - drag();
+        child().paint(g, r);
+
+        g.pop();
+    }
+
+    void event(App::Event& e) override {
+        if (auto it = e.is<App::MouseEvent>()) {
+            if (_grabbed) {
+                if (it->type == App::MouseEvent::RELEASE) {
+                    dragEnded();
+                    e.accept();
+                } else if (it->type == App::MouseEvent::MOVE) {
+                    dragMove(it->delta.cast<f64>());
+                    e.accept();
+                }
+            } else {
+                it->pos = it->pos - drag().cast<isize>();
+                child().event(e);
+                it->pos = it->pos + drag().cast<isize>();
+            }
+        } else if (e.is<Node::AnimateEvent>() and _dismissed and _drag.reached()) {
+            _onDismis(*this);
+            _dismissed = false;
+            Ui::ProxyNode<Dismisable>::event(e);
+        } else if (_drag.needRepaint(*this, e)) {
+            auto childBound = child().bound();
+            auto repaintBound =
+                bound()
+                    .clipTo(childBound
+                                .offset(_last)
+                                .mergeWith(childBound.offset(drag())));
+            _last = drag();
+            Ui::shouldRepaint(*this, repaintBound);
+            Ui::ProxyNode<Dismisable>::event(e);
+        } else {
+            Ui::ProxyNode<Dismisable>::event(e);
+        }
+    }
+
+    void bubble(App::Event& e) override {
+        if (auto de = e.is<App::DragStartEvent>()) {
+            _grabbed = true;
+            e.accept();
+        }
+
+        Ui::ProxyNode<Dismisable>::bubble(e);
+    }
+};
+
+export Child dismisable(Send<> onDismis, Flags<DismisDir> dir, f64 threshold, Ui::Child child) {
+    return makeRc<Dismisable>(onDismis, dir, threshold, std::move(child));
+}
+
+export auto dismisable(Send<> onDismis, Flags<DismisDir> dir, f64 threshold) {
+    return [=](Ui::Child child) mutable {
+        return dismisable(onDismis, dir, threshold, child);
+    };
+}
+
+// MARK: Drag Region -----------------------------------------------------------
+
+struct DragRegion : ProxyNode<DragRegion> {
+    using ProxyNode::ProxyNode;
+
+    void event(App::Event& event) override {
+        ProxyNode::event(event);
+
+        if (event.accepted())
+            return;
+
+        if (auto it = event.is<App::MouseEvent>();
+            it and bound().contains(it->pos.cast<Au>()) and it->type == App::MouseEvent::PRESS) {
+            bubble<App::DragStartEvent>(*this);
+            event.accept();
+        }
+    }
+
+    App::HitResult hitTest(Math::Vec2Au p) override {
+        if (auto result = child().hitTest(p); result != App::HitResult::NORMAL)
+            return result;
+        return App::HitResult::DRAG;
+    }
+};
+
+export Child dragRegion(Child child) {
+    return makeRc<DragRegion>(child);
+}
+
+export auto dragRegion() {
+    return [](Child child) {
+        return dragRegion(child);
+    };
+}
+
+// MARK: Resize Region ---------------------------------------------------------
+
+struct ResizeRegion : ProxyNode<ResizeRegion> {
+    Au _grip;
+
+    ResizeRegion(Child child, Au grip)
+        : ProxyNode(std::move(child)), _grip(grip) {}
+
+    void event(App::Event& event) override {
+        if (auto it = event.is<App::MouseEvent>();
+            it and not event.accepted() and bound().contains(it->pos.cast<Au>())) {
+            if (auto const& [dir] = App::resizeDirectionFromPos(it->pos, bound().cast<isize>(), _grip.cast<isize>())) {
+                if (it->type == App::MouseEvent::MOVE) {
+                    bubble<App::RequestCursorEvent>(*this, App::cursorFromDirection(dir));
+                } else if (it->type == App::MouseEvent::PRESS and it->button == App::MouseButton::LEFT) {
+                    bubble<App::ResizeStartEvent>(*this, dir);
+                    event.accept();
+                    return;
+                }
+            }
+        }
+
+        ProxyNode::event(event);
+    }
+
+    App::HitResult hitTest(Math::Vec2Au pos) override {
+        if (auto dir = App::resizeDirectionFromPos(pos.cast<isize>(), bound().cast<isize>(), _grip.cast<isize>()))
+            return App::resizeHit(*dir);
+        return child().hitTest(pos);
+    }
+};
+
+export Child resizeRegion(Child child, Au grip = 6_au) {
+    return makeRc<ResizeRegion>(std::move(child), grip);
+}
+
+export auto resizeRegion(Au grip = 6_au) {
+    return [=](Child child) {
+        return resizeRegion(child, grip);
+    };
+}
+
+} // namespace Karm::Ui

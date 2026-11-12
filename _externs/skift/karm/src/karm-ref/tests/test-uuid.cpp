@@ -1,0 +1,58 @@
+#include <karm/test>
+
+import Karm.Ref;
+
+using namespace Karm::Ref::Literals;
+
+namespace Karm::Ref::Tests {
+
+test$("uuid-parse") {
+    auto uuid = "5fb3610d-8cea-4fec-864e-58e9f9c9814d"_uuid;
+    auto uuidStr = Io::format("{}", uuid);
+    auto uuid2 = try$(Uuid::parse(uuidStr));
+    auto uuid2Str = Io::format("{}", uuid2);
+
+    assertEq$(uuidStr, uuid2Str);
+    assertEq$(uuid, uuid2);
+
+    return Ok();
+}
+
+test$("guid-parse") {
+    auto guid = "5fb3610d-8cea-4fec-864e-58e9f9c9814d"_guid;
+    auto guidStr = Io::format("{}", guid);
+    auto guid2 = try$(Guid::parse(guidStr));
+    auto guid2Str = Io::format("{}", guid2);
+
+    assertEq$(guidStr, guid2Str);
+    assertEq$(guid, guid2);
+
+    return Ok();
+}
+
+test$("uuid-v1") {
+    auto uuid = "01f88692-036a-11f1-8de9-0242ac120002"_uuid;
+    assertEq$(uuid.version(), 1);
+    assertEq$(uuid.variant(), 2);
+    return Ok();
+}
+
+test$("uuid-bytes") {
+    Array<u8, 16> uuidByteArray = {0x5f, 0xb3, 0x61, 0x0d, 0x8c, 0xea, 0x4f, 0xec, 0x86, 0x4e, 0x58, 0xe9, 0xf9, 0xc9, 0x81, 0x4d};
+    auto uuid = "5fb3610d-8cea-4fec-864e-58e9f9c9814d"_uuid;
+    assertEq$(uuid.bytes(), bytes(uuidByteArray));
+    assertEq$(uuid.version(), 4);
+    assertEq$(uuid.variant(), 2);
+    return Ok();
+}
+
+test$("guid-bytes") {
+    Array<u8, 16> guidByteArray = {0x0d, 0x61, 0xb3, 0x5f, 0xea, 0x8c, 0xec, 0x4f, 0x86, 0x4e, 0x58, 0xe9, 0xf9, 0xc9, 0x81, 0x4d};
+    auto guid = "5fb3610d-8cea-4fec-864e-58e9f9c9814d"_guid;
+    assertEq$(guid.bytes(), bytes(guidByteArray));
+    assertEq$(guid.version(), 4);
+    assertEq$(guid.variant(), 2);
+    return Ok();
+}
+
+} // namespace Karm::Ref::Tests

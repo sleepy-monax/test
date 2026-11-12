@@ -1,0 +1,69 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.target.v1",
+    "id": "efi-x86_64",
+    "type": "target",
+    "props": {
+        "toolchain": "llvm",
+        "arch": "x86_64",
+        "sys": "efi",
+        "abi": "ms",
+        "bits": "64",
+        "freestanding": false,
+        "host": false,
+        "sys-encoding": "utf16",
+        "sys-line-ending": "crlf",
+        "sys-path-separator": "backslash",
+        "sys-terminal": false
+    },
+    "tools": {
+        "cc": {
+            "cmd": "{shell.env('CC', shell.latest('clang'))}",
+            "args": [
+                "--target=x86_64-unknown-windows",
+                "-fno-stack-protector",
+                "-fshort-wchar",
+                "-mno-red-zone",
+                "-fno-delayed-template-parsing",
+                "-fno-ms-compatibility",
+                "-fno-threadsafe-statics"
+            ]
+        },
+        "cxx": {
+            "cmd": "{shell.env('CXX', shell.latest('clang++'))}",
+            "args": [
+                "--target=x86_64-unknown-windows",
+                "-fno-stack-protector",
+                "-fshort-wchar",
+                "-mno-red-zone",
+                "-fno-delayed-template-parsing",
+                "-fno-ms-compatibility",
+                "-fno-threadsafe-statics",
+                "-fno-exceptions",
+                "-fno-rtti"
+            ]
+        },
+        "ld": {
+            "cmd": "{shell.env('LD', shell.latest('clang++'))}",
+            "args": [
+                "--target=x86_64-unknown-windows",
+                "-nostdlib",
+                "-Wl,-entry:efi_main",
+                "-Wl,-subsystem:efi_application",
+                "-fuse-ld=lld-link"
+            ]
+        },
+        "ar": {
+            "cmd": "{shell.env('AR', shell.latest('llvm-ar'))}",
+            "args": [
+                "rcs"
+            ]
+        },
+        "as": {
+            "cmd": "nasm",
+            "args": [
+                "-f",
+                "win64"
+            ]
+        }
+    }
+}

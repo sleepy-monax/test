@@ -1,0 +1,777 @@
+module;
+
+#include <arpa/inet.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/un.h>
+#include <sys/utsname.h>
+#include <time.h>
+#include <unistd.h>
+
+#ifdef __ck_sys_freebsd__
+#    include <libutil.h>
+#elifdef __ck_sys_darwin__
+#    include <util.h>
+#else
+#    include <pty.h>
+#endif
+
+//
+#include <karm/macros>
+
+module Karm.Sys;
+
+import Karm.Core;
+import Karm.Ref;
+import Karm.Sys.Posix;
+
+using namespace Karm::Re::Literals;
+
+namespace Karm::Sys::_Embed {
+
+// MARK: Fd --------------------------------------------------------------------
+
+Res<Rc<Sys::Fd>> deserializeFd(Serde::Deserializer&) {
+    return Error::notImplemented();
+}
+
+// MARK: File I/O --------------------------------------------------------------
+
+Res<Rc<Fd>> openFile(Ref::Url const& url, Flags<OpenOption> options) {
+    i32 flags = 0;
+    if (options.has({OpenOption::READ, OpenOption::WRITE}))
+        flags |= O_RDWR;
+    else if (options.has({OpenOption::READ}))
+        flags |= O_RDONLY;
+    else if (options.has({OpenOption::WRITE}))
+        flags |= O_WRONLY;
+    else
+        return Error::invalidInput("file must be open in either a readable or writable mode");
+
+    if (options.has({OpenOption::CREATE}))
+        flags |= O_CREAT;
+
+    if (options.has(OpenOption::CREATE_NEW))
+        flags |= O_EXCL;
+
+    if (options.has(OpenOption::APPEND))
+        flags |= O_APPEND;
+
+    if (options.has(OpenOption::TRUNCATE))
+        flags |= O_TRUNC;
+
+    if (url.scheme == "fd") {
+        if (url.path.stem() == "stdin") {
+            return Ok(in().fd());
+        } else if (url.path.stem() == "stdout") {
+            return Ok(out().fd());
+        } else if (url.path.stem() == "stderr") {
+            return Ok(err().fd());
+        } else {
+            return Error::notFound("unknown fd");
+        }
+    }
+
+    String str = try$(Posix::resolve(url)).str();
+
+    isize raw = ::open(str.buf(), flags, 0666);
+    if (raw < 0)
+        return Posix::fromLastErrno();
+    auto fd = makeRc<Posix::Fd>(raw);
+    if (try$(fd->stat()).type == Type::DIR)
+        return Error::isADirectory();
+    return Ok(fd);
+}
+
+Res<Pair<Rc<Fd>>> createPipe() {
+    int fds[2];
+
+    if (::pipe(fds) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok(Pair<Rc<Fd>>{
+        makeRc<Posix::Fd>(fds[1]),
+        makeRc<Posix::Fd>(fds[0]),
+    });
+}
+
+Res<Rc<Fd>> createIn() {
+    auto fd = makeRc<Posix::Fd>(0);
+    fd->_leak = true; // Don't close stdin when we close the fd
+    return Ok(fd);
+}
+
+Res<Rc<Fd>> createOut() {
+    auto fd = makeRc<Posix::Fd>(1);
+    fd->_leak = true; // Don't close stdout when we close the fd
+    return Ok(fd);
+}
+
+Res<Rc<Fd>> createErr() {
+    auto fd = makeRc<Posix::Fd>(2);
+    fd->_leak = true; // Don't close stderr when we close the fd
+    return Ok(fd);
+}
+
+Res<Vec<DirEntry>> readDir(Ref::Url const& url) {
+    String str = try$(Posix::resolve(url)).str();
+
+    DIR* dir = ::opendir(str.buf());
+    if (not dir)
+        return Posix::fromLastErrno();
+
+    Vec<DirEntry> entries;
+    dirent* entry;
+    errno = 0;
+    while ((entry = ::readdir(dir))) {
+        try$(Posix::consumeErrno());
+
+        if (std::strcmp(entry->d_name, ".") == 0 or
+            std::strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        entries.pushBack(DirEntry{
+            Str::fromNullterminated(entry->d_name),
+            entry->d_type == DT_DIR ? Sys::Type::DIR : Sys::Type::FILE,
+        });
+    }
+
+    if (::closedir(dir) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok(entries);
+}
+
+Res<> createDir(Ref::Url const& url) {
+    String str = try$(Posix::resolve(url)).str();
+
+    if (::mkdir(str.buf(), 0755) < 0) {
+        if (errno == EEXIST) {
+            return Error::alreadyExists("directory already exists");
+        }
+        return Posix::fromLastErrno();
+    }
+
+    return Ok();
+}
+
+Res<Vec<Sys::DirEntry>> readDirOrCreate(Ref::Url const& url) {
+    String str = try$(Posix::resolve(url)).str();
+
+    DIR* dir = ::opendir(str.buf());
+    Defer _{[&]() {
+        if (dir)
+            ::closedir(dir);
+    }};
+
+    if (dir) {
+        Vec<DirEntry> entries;
+        dirent* entry;
+        errno = 0;
+        while ((entry = ::readdir(dir))) {
+            try$(Posix::consumeErrno());
+
+            if (std::strcmp(entry->d_name, ".") == 0 or
+                std::strcmp(entry->d_name, "..") == 0) {
+                continue;
+            }
+
+            entries.pushBack(DirEntry{
+                Str::fromNullterminated(entry->d_name),
+                entry->d_type == DT_DIR ? Sys::Type::DIR : Sys::Type::FILE,
+            });
+        }
+
+        return Ok(entries);
+    } else {
+        if (errno != ENOENT)
+            return Posix::fromLastErrno();
+        try$(createDir(url));
+        return Ok(Vec<DirEntry>{});
+    }
+}
+
+Res<Stat> stat(Ref::Url const& url) {
+    String str = try$(Posix::resolve(url)).str();
+    struct stat buf;
+    if (::stat(str.buf(), &buf) < 0)
+        return Posix::fromLastErrno();
+    return Ok(Posix::fromStat(buf));
+}
+
+Res<> rename(Ref::Url const& from, Ref::Url const& to) {
+    String fromStr = try$(Posix::resolve(from)).str();
+    String toStr = try$(Posix::resolve(to)).str();
+    if (::rename(fromStr.buf(), toStr.buf()) < 0)
+        return Posix::fromLastErrno();
+    return Ok();
+}
+
+Res<> touch(Ref::Url const& url, Opt<SystemTime> const& time) {
+    String str = try$(Posix::resolve(url)).str();
+    int fd = ::open(str.buf(), O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
+    if (fd < 0)
+        return Posix::fromLastErrno();
+    Defer _ = [&] {
+        close(fd);
+    };
+
+    struct timespec times[2];
+    if (time) {
+        auto ts = Posix::toTimespec(*time);
+        times[0] = times[1] = ts;
+    } else {
+        times[0] = times[1] = {0, UTIME_NOW};
+    }
+
+    if (::futimens(fd, times) < 0)
+        return Posix::fromLastErrno();
+    return Ok();
+}
+
+Res<> remove(Ref::Url const& url, Flags<RemoveOption> options) {
+    String str = try$(Posix::resolve(url)).str();
+    struct stat buf;
+    if (::stat(str.buf(), &buf) < 0)
+        return Posix::fromLastErrno();
+
+    if (S_ISDIR(buf.st_mode)) {
+        if (options.has({RemoveOption::DIRECTORY, RemoveOption::RECURSIVE})) {
+            if (::unlink(str.buf()) < 0)
+                return Posix::fromLastErrno();
+            return Ok();
+        }
+
+        if (options.has({RemoveOption::DIRECTORY})) {
+            if (::rmdir(str.buf()) < 0)
+                return Posix::fromLastErrno();
+            return Ok();
+        }
+
+        return Error::isADirectory();
+    }
+
+    if (options.has({RemoveOption::FILE})) {
+        if (::unlink(str.buf()) < 0)
+            return Posix::fromLastErrno();
+        return Ok();
+    }
+
+    return Error::notFound();
+}
+
+// MARK: Sockets ---------------------------------------------------------------
+
+Res<Rc<Fd>> listenUdp(SocketAddr addr) {
+    int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0)
+        return Posix::fromLastErrno();
+
+    sockaddr_in addr_ = Posix::toSockAddr(addr);
+
+    if (::bind(fd, (sockaddr*)&addr_, sizeof(addr_)) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok(makeRc<Posix::Fd>(fd));
+}
+
+Res<Rc<Fd>> connectTcp(SocketAddr addr) {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return Posix::fromLastErrno();
+
+    sockaddr_in addr_ = Posix::toSockAddr(addr);
+    if (::connect(fd, (sockaddr*)&addr_, sizeof(addr_)) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok(makeRc<Posix::Fd>(fd));
+}
+
+Res<Rc<Fd>> listenTcp(SocketAddr addr) {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return Posix::fromLastErrno();
+
+    int opt = 1;
+    if (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+        return Posix::fromLastErrno();
+
+    sockaddr_in addr_ = Posix::toSockAddr(addr);
+
+    if (::bind(fd, (sockaddr*)&addr_, sizeof(addr_)) < 0)
+        return Posix::fromLastErrno();
+
+    if (::listen(fd, 128) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok(makeRc<Posix::Fd>(fd));
+}
+
+Res<_Connected> connectIpc(Ref::Url url) {
+    int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return Posix::fromLastErrno();
+
+    sockaddr_un addr = {};
+    addr.sun_family = AF_UNIX;
+    String path = try$(Posix::resolve(url)).str();
+    auto sunPath = MutSlice(addr.sun_path, sizeof(addr.sun_path) - 1);
+    copy(sub(path), sunPath);
+
+    if (::connect(fd, (sockaddr*)&addr, sizeof(addr)) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok<_Connected>(makeRc<Posix::Fd>(fd), false);
+}
+
+Res<Rc<Fd>> listenIpc(Ref::Url url) {
+    int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return Posix::fromLastErrno();
+
+    sockaddr_un addr = {};
+    addr.sun_family = AF_UNIX;
+    String path = try$(Posix::resolve(url)).str();
+    auto sunPath = MutSlice(addr.sun_path, sizeof(addr.sun_path) - 1);
+    copy(sub(path), sunPath);
+
+    if (::bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0)
+        return Posix::fromLastErrno();
+
+    if (::listen(fd, 128) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok(makeRc<Posix::Fd>(fd));
+}
+
+// MARK: Time ------------------------------------------------------------------
+
+Duration fromTimeSpec(timespec const& ts) {
+    auto usecs = (u64)ts.tv_sec * 1000000 + (u64)ts.tv_nsec / 1000;
+    return Duration::fromUSecs(usecs);
+}
+
+SystemTime now() {
+    timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return SystemTime::epoch() + fromTimeSpec(ts);
+}
+
+Instant instant() {
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return Instant::epoch() + fromTimeSpec(ts);
+}
+
+Duration uptime() {
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return fromTimeSpec(ts);
+}
+
+// MARK: Memory Management -----------------------------------------------------
+
+isize _mmapPropsToProt(MmapProps const& options) {
+    isize prot = 0;
+
+    if (options.options & MmapOption::READ)
+        prot |= PROT_READ;
+
+    if (options.options & MmapOption::WRITE)
+        prot |= PROT_WRITE;
+
+    if (options.options & MmapOption::EXEC)
+        prot |= PROT_EXEC;
+
+    return prot;
+}
+
+Res<MmapResult> memMap(MmapProps const& options) {
+    void* addr = ::mmap(reinterpret_cast<void*>(options.vaddr), options.size, _mmapPropsToProt(options), MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+
+    if (addr == MAP_FAILED)
+        return Posix::fromLastErrno();
+
+    if (options.options & MmapOption::PREFETCH) {
+        if (madvise(addr, options.size, MADV_WILLNEED) < 0)
+            return Posix::fromLastErrno();
+    }
+
+    return Ok(MmapResult{0, (usize)addr, (usize)options.size});
+}
+
+Res<MmapResult> memMap(MmapProps const& options, Rc<Fd> maybeFd) {
+    Rc<Posix::Fd> fd = try$(maybeFd.cast<Posix::Fd>());
+    usize size = options.size;
+
+    if (size == 0)
+        size = try$(Io::size(*fd));
+
+    void* addr = ::mmap(reinterpret_cast<void*>(options.vaddr), size, _mmapPropsToProt(options), MAP_SHARED, fd->_raw, options.offset);
+
+    if (addr == MAP_FAILED)
+        return Posix::fromLastErrno();
+
+    return Ok(MmapResult{0, (usize)addr, (usize)size});
+}
+
+Res<> memUnmap(void const* buf, usize len) {
+    if (::munmap((void*)buf, len) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok();
+}
+
+Res<> memFlush(void* flush, usize len) {
+    if (::msync(flush, len, MS_INVALIDATE) < 0)
+        return Posix::fromLastErrno();
+
+    return Ok();
+}
+
+usize pageSize() {
+    return getpagesize();
+}
+
+// MARK: System Information ----------------------------------------------------
+
+Res<> populate(SysInfo& infos) {
+    utsname uts;
+    if (uname(&uts) < 0)
+        return Posix::fromLastErrno();
+
+    infos.sysName = "Posix"s;
+    infos.sysVersion = Io::format("{}", _POSIX_VERSION);
+
+    infos.kernelName = Str::fromNullterminated(uts.sysname, sizeof(uts.sysname));
+    infos.kernelVersion = Str::fromNullterminated(uts.release, sizeof(uts.release));
+
+    infos.hostname = Str::fromNullterminated(uts.nodename, sizeof(uts.nodename));
+
+    return Ok();
+}
+
+Res<> populate(MemInfo& infos) {
+    auto memInfo = try$(Sys::readAllText("file:/proc/meminfo"_url));
+    Io::SScan s{memInfo};
+
+    while (not s.ended()) {
+        auto key = s.token(Re::oneOrMore(Re::alnum() | '_'_re));
+        s.skip(Re::separator(':'_re));
+
+        if (key == "MemTotal"s) {
+            infos.physicalTotal = Io::atou(s).unwrapOr(0) * 1024;
+        } else if (key == "MemAvailable"s) {
+            infos.physicalFree = Io::atou(s).unwrapOr(0) * 1024;
+        } else if (key == "SwapTotal"s) {
+            infos.swapTotal = Io::atou(s).unwrapOr(0) * 1024;
+        } else if (key == "SwapFree"s) {
+            infos.swapFree = Io::atou(s).unwrapOr(0) * 1024;
+        }
+
+        s.skip(Re::untilAndConsume("\n"_re | Re::eof()));
+    }
+
+    return Ok();
+}
+
+Res<> populate(Vec<Cpu>& cpus) {
+    auto procStat = try$(Sys::readAllText("file:/proc/stat"_url));
+    Io::SScan s{procStat};
+
+    while (not s.ended()) {
+        if (s.skip("cpu")) {
+            auto num = Io::atoi(s);
+            if (num) {
+                s.skip(Re::space());
+                auto userTime = Sys::Ticks{Io::atou(s).unwrapOr(0)}; // utime
+                s.skip(Re::space());
+                (void)Io::atou(s); // nice
+                s.skip(Re::space());
+                auto systemTime = Sys::Ticks{Io::atou(s).unwrapOr(0)}; // stime
+                s.skip(Re::space());
+                auto idleTime = Sys::Ticks{Io::atou(s).unwrapOr(0)}; // idle
+
+                cpus.pushBack({
+                    .name = ""s,
+                    .brand = ""s,
+                    .vendor = ""s,
+                    .userTime = userTime,
+                    .systemTime = systemTime,
+                    .idleTime = idleTime,
+                    .freq = 0,
+                });
+            }
+        }
+        s.skip(Re::untilAndConsume("\n"_re | Re::eof()));
+    }
+
+    return Ok();
+}
+
+Res<> populate(UserInfo& infos) {
+    infos.name = Str::fromNullterminated(getenv("USER"));
+    infos.home.scheme = "file"_sym;
+    infos.home.path = Ref::Path::parse(getenv("HOME"));
+
+    infos.shell.scheme = "file"_sym;
+    infos.shell.path = Ref::Path::parse(getenv("SHELL"));
+
+    return Ok();
+}
+
+Res<> populate(Vec<UserInfo>& infos) {
+    UserInfo info;
+    try$(populate(info));
+    infos.pushBack(info);
+    return Ok();
+}
+
+// MARK: Process Management ----------------------------------------------------
+
+Res<Rc<Process>> spawn(Command const& cmd) {
+    if (not cmd.args.len() or not cmd.args[0])
+        return Error::invalidInput("no executable provided");
+
+    auto buildArgv = [&](Vec<char*>& argv) {
+        for (auto const& arg : cmd.args)
+            argv.pushBack(const_cast<char*>(arg.buf()));
+        argv.pushBack(nullptr);
+    };
+
+    auto buildEnvp = [&](Vec<String>& kvStore, Vec<char*>& envp) {
+        kvStore.clear();
+        envp.clear();
+        for (auto const& [key, val] : cmd.env.iterItems()) {
+            kvStore.pushBack(Io::format("{}={}", key, val));
+        }
+        for (auto& kv : kvStore)
+            envp.pushBack(const_cast<char*>(kv.buf()));
+        envp.pushBack(nullptr);
+    };
+
+    Opt<String> cwd = NONE;
+    if (cmd.cwd)
+        cwd = Some(try$(Posix::resolve(cmd.cwd.expect())).str());
+
+    int inFd = -1;
+    if (cmd.in)
+        inFd = try$(Posix::ensurePosixFd(cmd.in.expect()))->_raw;
+
+    int outFd = -1;
+    if (cmd.out)
+        outFd = try$(Posix::ensurePosixFd(cmd.out.expect()))->_raw;
+
+    int errFd = -1;
+    if (cmd.err)
+        errFd = try$(Posix::ensurePosixFd(cmd.err.expect()))->_raw;
+
+    pid_t pid = ::fork();
+    if (pid < 0)
+        return Posix::fromLastErrno();
+
+    if (pid == 0) {
+        // Child
+        if (cmd.in) {
+            if (::dup2(inFd, STDIN_FILENO) < 0)
+                _exit(127);
+        }
+
+        if (cmd.out) {
+            if (::dup2(outFd, STDOUT_FILENO) < 0)
+                _exit(127);
+        }
+
+        if (cmd.err) {
+            if (::dup2(errFd, STDERR_FILENO) < 0)
+                _exit(127);
+        }
+
+        if (cwd and ::chdir(cwd->buf()) < 0)
+            _exit(127);
+
+        Vec<char*> argv;
+        buildArgv(argv);
+
+        if (cmd.env.len()) {
+            Vec<String> kvStore;
+            Vec<char*> envp;
+            buildEnvp(kvStore, envp);
+            ::execve(argv[0], argv.buf(), envp.buf());
+        } else {
+            ::execvp(argv[0], argv.buf());
+        }
+
+        _exit(127); // exec failed
+    } else {
+        // Parent
+        return Ok(makeRc<Posix::Process>(pid));
+    }
+}
+
+Res<Tuple<Rc<Process>, Rc<Fd>>> spawnPty(Command const& cmd) {
+    if (not cmd.args.len() or not cmd.args[0])
+        return Error::invalidInput("no executable provided");
+
+    auto buildArgv = [&](Vec<char*>& argv) {
+        for (auto const& arg : cmd.args)
+            argv.pushBack(const_cast<char*>(arg.buf()));
+        argv.pushBack(nullptr);
+    };
+
+    auto buildEnvp = [&](Vec<String>& kvStore, Vec<char*>& envp) {
+        kvStore.clear();
+        envp.clear();
+        for (auto const& [key, val] : cmd.env.iterItems()) {
+            kvStore.pushBack(Io::format("{}={}", key, val));
+        }
+        for (auto& kv : kvStore)
+            envp.pushBack(const_cast<char*>(kv.buf()));
+        envp.pushBack(nullptr);
+    };
+
+    Opt<String> cwd = NONE;
+    if (cmd.cwd)
+        cwd = Some(try$(Posix::resolve(cmd.cwd.expect())).str());
+
+    int pty = -1;
+    pid_t pid = ::forkpty(&pty, nullptr, nullptr, nullptr);
+    Defer deferClose = [&] {
+        if (pty != -1)
+            close(pty);
+    };
+    if (pid < 0)
+        return Posix::fromLastErrno();
+
+    if (pid == 0) {
+        if (cwd and ::chdir(cwd->buf()) < 0)
+            _exit(127);
+
+        Vec<char*> argv;
+        buildArgv(argv);
+
+        if (cmd.env.len()) {
+            Vec<String> kvStore;
+            Vec<char*> envp;
+            buildEnvp(kvStore, envp);
+            ::execve(argv[0], argv.buf(), envp.buf());
+        } else {
+            ::execvp(argv[0], argv.buf());
+        }
+
+        _exit(127); // exec failed
+    }
+
+    deferClose.disarm();
+    return Ok<Tuple<Rc<Process>, Rc<Fd>>>(
+        makeRc<Posix::Process>(pid),
+        makeRc<Posix::Fd>(pty)
+    );
+}
+
+Res<Rc<Process>> openProcess(usize id) {
+    return Ok(makeRc<Posix::Process>(id));
+}
+
+Res<Vec<Rc<Process>>> listProcess() {
+    auto dir = try$(Sys::Dir::open("file:/proc"_url));
+    Vec<Rc<Process>> procs;
+    for (auto const& e : dir.entries()) {
+        auto pid = Io::atou(e.name.str());
+        if (pid == NONE)
+            continue;
+        procs.pushBack(makeRc<Posix::Process>(pid.expect()));
+    }
+    sort(procs, [](auto const& a, auto const& b) {
+        return a->id() <=> b->id();
+    });
+    return Ok(std::move(procs));
+}
+
+Res<> sleep(Duration span) {
+    timespec ts;
+    ts.tv_sec = span.toSecs();
+    ts.tv_nsec = (span.toUSecs() % 1000000) * 1000;
+    if (nanosleep(&ts, nullptr) < 0)
+        return Posix::fromLastErrno();
+    return Ok();
+}
+
+Res<> sleepUntil(Instant) {
+    return Error::notImplemented();
+}
+
+Res<> exit(i32 res) {
+    ::exit(res);
+    return Error::other("reached the afterlife");
+}
+
+// MARK: Addr ------------------------------------------------------------------
+
+Async::Task<Vec<Ip>> ipLookupAsync(Str host) {
+    addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    Vec<Ip> ips;
+    if (host == "localhost") {
+        ips.pushBack(Ip4::localhost());
+        ips.pushBack(Ip6::localhost());
+        co_return Ok(ips);
+    }
+
+    addrinfo* res;
+    auto result = getaddrinfo(host.buf(), nullptr, &hints, &res);
+    if (result != 0) {
+        switch (result) {
+        case EAI_ADDRFAMILY:
+            co_return Error::invalidInput("address family not supported");
+        case EAI_AGAIN:
+            co_return Error::timedOut("temporary failure in name resolution");
+        case EAI_FAIL:
+            co_return Error::other("non-recoverable failure in name resolution");
+        case EAI_FAMILY:
+            co_return Error::invalidInput("address family not supported");
+        case EAI_MEMORY:
+            co_return Error::outOfMemory("memory allocation failure");
+        case EAI_NONAME:
+            co_return Error::notFound("name or service not known");
+        case EAI_SERVICE:
+            co_return Error::invalidInput("service not supported for socket type");
+        case EAI_SOCKTYPE:
+            co_return Error::invalidInput("socket type not supported");
+        default:
+            co_return Posix::fromLastErrno();
+        }
+    }
+
+    for (auto* p = res; p; p = p->ai_next) {
+        if (p->ai_family == AF_INET) {
+            sockaddr_in* addr = (struct sockaddr_in*)p->ai_addr;
+            ips.pushBack(Ip4::fromRaw(bswap(addr->sin_addr.s_addr)));
+        } else if (p->ai_family == AF_INET6) {
+            sockaddr_in6* addr = (struct sockaddr_in6*)p->ai_addr;
+            u128 raw = 0;
+            u16 const* buf = (u16 const*)addr->sin6_addr.s6_addr;
+            for (usize i = 0; i < 8; i++)
+                raw |= (u128)buf[i] << (i * 16);
+            ips.pushBack(Ip6::fromRaw(bswap(raw)));
+        }
+    }
+
+    freeaddrinfo(res);
+    co_return Ok(ips);
+}
+
+} // namespace Karm::Sys::_Embed

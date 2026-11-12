@@ -1,0 +1,17 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.component.v1",
+    "id": "freebsd.libutil",
+    "type": "lib",
+    "enableIf": {
+        "sys": [
+            "freebsd"
+        ]
+    },
+    "tools": {
+        "ld": {
+            "args": [
+                "-lutil"
+            ]
+        }
+    }
+}

@@ -1,0 +1,74 @@
+#pragma once
+
+#include <karm/macros>
+
+import Karm.Test;
+import Karm.Core;
+
+namespace Karm::Test {
+
+#define test$(ID, ...)                                                                            \
+    static ::Karm::Res<> var$(func)([[maybe_unused]] ::Karm::Test::Driver & _driver);             \
+    static ::Karm::Test::Test var$(test){ID, var$(func) __VA_OPT__(, ::Karm::Test::__VA_ARGS__)}; \
+    static ::Karm::Res<> var$(func)([[maybe_unused]] ::Karm::Test::Driver & _driver)
+
+#define testAsync$(ID, ...)                                                                                                                      \
+    static ::Karm::Async::Task<> var$(funcAsync)([[maybe_unused]] ::Karm::Test::Driver & _driver, [[maybe_unused]] Async::CancellationToken ct); \
+    static ::Karm::Test::Test var$(test){ID, var$(funcAsync) __VA_OPT__(, ::Karm::Test::__VA_ARGS__)};                                           \
+    static ::Karm::Async::Task<> var$(funcAsync)([[maybe_unused]] ::Karm::Test::Driver & _driver, [[maybe_unused]] Async::CancellationToken ct)
+
+#define __assert$(LHS, RHS, OP)                         \
+    ({                                                  \
+        /* Make sure LHS and RHS are evaluated once */  \
+        auto&& __lhs = (LHS);                             \
+        auto&& __rhs = (RHS);                             \
+                                                        \
+        if (not((__lhs)OP(__rhs))) {                    \
+            return _driver.unexpect(__lhs, __rhs, #OP); \
+        }                                               \
+    })
+
+#define assert$(EXPR) __assert$(EXPR, true, ==)
+
+#define assertNot$(EXPR) __assert$(EXPR, true, !=)
+
+#define assertEq$(LHS, RHS) __assert$(LHS, RHS, ==)
+
+#define assertNe$(LHS, RHS) __assert$(LHS, RHS, !=)
+
+#define assertLt$(LHS, RHS) __assert$(LHS, RHS, <)
+
+#define assertGt$(LHS, RHS) __assert$(LHS, RHS, >)
+
+#define assertLteq$(LHS, RHS) __assert$(LHS, RHS, <=)
+
+#define assertGteq$(LHS, RHS) __assert$(LHS, RHS, >=)
+
+#define __co_assert$(LHS, RHS, OP, OPSTR)                    \
+    ({                                                       \
+        /* Make sure LHS and RHS are evaluated once */       \
+        auto&& __lhs = (LHS);                                  \
+        auto&& __rhs = (RHS);                                  \
+                                                             \
+        if (not((__lhs)OP(__rhs))) {                         \
+            co_return _driver.unexpect(__lhs, __rhs, OPSTR); \
+        }                                                    \
+    })
+
+#define co_assert$(EXPR) __co_assert$(EXPR, true, ==, "=")
+
+#define co_assertNot$(EXPR) __co_assert$(EXPR, true, !=, "≠")
+
+#define co_assertEq$(LHS, RHS) __co_assert$(LHS, RHS, ==, "=")
+
+#define co_assertNe$(LHS, RHS) __co_assert$(LHS, RHS, !=, "≠")
+
+#define co_assertLt$(LHS, RHS) __co_assert$(LHS, RHS, <, "<")
+
+#define co_assertGt$(LHS, RHS) __co_assert$(LHS, RHS, >, ">")
+
+#define co_assertLteq$(LHS, RHS) __co_assert$(LHS, RHS, <=, "≤")
+
+#define co_assertGteq$(LHS, RHS) __co_assert$(LHS, RHS, >=, "≥")
+
+} // namespace Karm::Test

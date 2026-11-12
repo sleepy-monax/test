@@ -1,0 +1,60 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.target.v1",
+    "id": "generic-x86_64",
+    "type": "target",
+    "props": {
+        "toolchain": "llvm",
+        "arch": "x86_64",
+        "sys": "generic",
+        "abi": "sysv",
+        "bits": "64",
+        "freestanding": false,
+        "host": false,
+        "sys-encoding": "utf8",
+        "sys-line-ending": "lf",
+        "sys-path-separator": "slash",
+        "sys-terminal": "ansi"
+    },
+    "tools": {
+        "cc": {
+            "cmd": "{shell.env('CC', shell.latest('clang'))}",
+            "args": [
+                "--target=x86_64-none-elf"
+            ]
+        },
+        "cxx": {
+            "cmd": "{shell.env('CXX', shell.latest('clang++'))}",
+            "args": [
+                "--target=x86_64-none-elf",
+                "-fno-exceptions",
+                "-fno-rtti"
+            ]
+        },
+        "ld": {
+            "cmd": "{shell.env('LD', shell.latest('ld.lld'))}",
+            "args": [
+                "-m",
+                "elf_x86_64",
+                "-T{utils.relpath('generic-x86_64.ld')}",
+                "-z",
+                "max-page-size=0x1000"
+            ],
+            "files": [
+                "{utils.relpath('generic-x86_64.ld')}"
+            ]
+        },
+        "ar": {
+            "cmd": "{shell.env('AR', shell.latest('llvm-ar'))}",
+            "args": [
+                "rcs"
+            ]
+        },
+        "as": {
+            "cmd": "nasm",
+            "args": [
+                "-f",
+                "elf64"
+            ]
+        }
+    }
+}

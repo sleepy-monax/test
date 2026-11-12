@@ -1,0 +1,127 @@
+#include <karm/test>
+
+import Karm.Gfx;
+import Karm.Math;
+
+namespace Karm::Gfx::Tests {
+
+static Rc<Image> _renderText(Str text, Math::Vec2f baseline, auto prepare) {
+    auto font = Font::fallback();
+    auto surface = Image::alloc({64, 32}, Gfx::RGBA8888);
+    surface->mutPixels().clear(Gfx::BLACK);
+
+    CpuCanvas g;
+    g.begin(surface->mutPixels());
+    g.fillStyle(Gfx::WHITE);
+    prepare(g);
+    for (auto rune : iterRunes(text)) {
+        auto glyph = font.glyph(rune);
+        g.fill(font, glyph, baseline);
+        // The glyph cache snaps the pen to quarter pixels, keep it on a grid
+        // that stays aligned at both 1x and 1.5x so cached and direct agree.
+        baseline.x += Math::round(font.advance(glyph) * 2) / 2;
+    }
+    g.end();
+
+    return surface;
+}
+
+static isize _maxChannelDiff(Pixels a, Pixels b) {
+    isize maxDiff = 0;
+    for (isize y = 0; y < a.height(); y++) {
+        for (isize x = 0; x < a.width(); x++) {
+            auto ca = a.loadUnsafe({x, y});
+            auto cb = b.loadUnsafe({x, y});
+            maxDiff = max(
+                maxDiff,
+                (isize)Math::abs(ca.red - cb.red),
+                (isize)Math::abs(ca.green - cb.green),
+                (isize)Math::abs(ca.blue - cb.blue)
+            );
+        }
+    }
+    return maxDiff;
+}
+
+static bool _anyInk(Pixels p) {
+    for (isize y = 0; y < p.height(); y++)
+        for (isize x = 0; x < p.width(); x++)
+            if (p.loadUnsafe({x, y}) != Gfx::BLACK)
+                return true;
+    return false;
+}
+
+test$("glyph-cache-matches-direct") {
+    auto cached = _renderText("skift", {4, 20}, [](CpuCanvas&) {
+    });
+
+    auto direct = _renderText("skift", {4, 20}, [](CpuCanvas& g) {
+        g.fillStyle(
+            Gfx::Gradient::linear()
+                .withColors(Gfx::WHITE, Gfx::WHITE)
+                .bake()
+        );
+    });
+
+    assert$(_anyInk(cached->pixels()));
+    assertEq$(_maxChannelDiff(cached->pixels(), direct->pixels()), 0);
+
+    return Ok();
+}
+
+test$("glyph-cache-matches-direct-scaled") {
+    auto cached = _renderText("skift", {4, 20}, [](CpuCanvas& g) {
+        g.scale(1.5);
+    });
+
+    auto direct = _renderText("skift", {4, 20}, [](CpuCanvas& g) {
+        g.scale(1.5);
+        g.fillStyle(
+            Gfx::Gradient::linear()
+                .withColors(Gfx::WHITE, Gfx::WHITE)
+                .bake()
+        );
+    });
+
+    assert$(_anyInk(cached->pixels()));
+    assertLteq$(_maxChannelDiff(cached->pixels(), direct->pixels()), 1);
+
+    return Ok();
+}
+
+test$("glyph-cache-replay-deterministic") {
+    auto first = _renderText("hello", {4.25, 20}, [](CpuCanvas&) {
+    });
+    auto second = _renderText("hello", {4.25, 20}, [](CpuCanvas&) {
+    });
+
+    assert$(_anyInk(first->pixels()));
+    assertEq$(_maxChannelDiff(first->pixels(), second->pixels()), 0);
+
+    return Ok();
+}
+
+test$("glyph-cache-respects-clip") {
+    auto unclipped = _renderText("mm", {4, 20}, [](CpuCanvas&) {
+    });
+
+    auto clipped = _renderText("mm", {4, 20}, [](CpuCanvas& g) {
+        g.clip(Math::Recti{0, 0, 10, 32});
+    });
+
+    assert$(_anyInk(clipped->pixels()));
+
+    for (isize y = 0; y < 32; y++) {
+        for (isize x = 0; x < 64; x++) {
+            auto c = clipped->pixels().loadUnsafe({x, y});
+            if (x < 10)
+                assertEq$(c, unclipped->pixels().loadUnsafe({x, y}));
+            else
+                assertEq$(c, Gfx::BLACK);
+        }
+    }
+
+    return Ok();
+}
+
+} // namespace Karm::Gfx::Tests

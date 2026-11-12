@@ -1,0 +1,7 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.project.v2",
+    "id": "cute-engineering/ce-mdi",
+    "type": "project",
+    "version": "v0.8.0",
+    "description": "Material Design Icons"
+}

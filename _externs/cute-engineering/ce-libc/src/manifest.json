@@ -1,0 +1,17 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.component.v1",
+    "id": "ce-libc",
+    "type": "lib",
+    "description": "The ISO C standard library, ISO/IEC 9899",
+    "enableIf": {
+        "host": [
+            false
+        ]
+    },
+    "provides": [
+        "libc"
+    ],
+    "props": {
+        "export-headers": "includes"
+    }
+}

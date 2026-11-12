@@ -1,0 +1,21 @@
+import Karm.Core;
+
+#include <karm/test>
+
+using namespace Karm::Literals;
+
+namespace Karm::Tests {
+
+test$("symbol-equality") {
+    Symbol sym0 = "test"_sym;
+    Symbol sym1 = "test"_sym;
+    Symbol sym2 = "test but different"_sym;
+    Symbol sym3 = "test but different"_sym;
+
+    assertEq$(sym0, sym1);
+    assertEq$(sym2, sym3);
+
+    return Ok();
+}
+
+} // namespace Karm::Tests

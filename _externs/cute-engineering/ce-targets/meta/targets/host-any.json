@@ -1,0 +1,42 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.target.v1",
+    "id": "host-{shell.uname().machine}",
+    "type": "target",
+    "props": {
+        "toolchain": "llvm",
+        "arch": "{shell.uname().machine}",
+        "sys": "{shell.uname().sysname}",
+        "abi": "unknown",
+        "bits": "{shell.uname().bits}",
+        "freestanding": false,
+        "host": true,
+        "sys-encoding": "utf8",
+        "sys-line-ending": "lf",
+        "sys-path-separator": "slash",
+        "sys-terminal": "ansi"
+    },
+    "tools": {
+        "cc": {
+            "cmd": "{shell.env('CC', shell.latest('clang'))}"
+        },
+        "cxx": {
+            "cmd": "{shell.env('CXX', shell.latest('clang++'))}"
+        },
+        "ld": {
+            "cmd": "{shell.env('LD', shell.latest('clang++'))}"
+        },
+        "ar": {
+            "cmd": "{shell.env('AR', shell.latest('llvm-ar'))}",
+            "args": [
+                "rcs"
+            ]
+        },
+        "as": {
+            "cmd": "nasm",
+            "args": [
+                "-f",
+                "elf64"
+            ]
+        }
+    }
+}

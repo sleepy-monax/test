@@ -1,0 +1,564 @@
+module;
+
+#include <karm/macros>
+
+export module Karm.Core:base.opt;
+
+import :base.std;
+import :base.niche;
+import :base.panic;
+import :base.try_;
+import :base.ok;
+import :base.some;
+import :meta.callable;
+import :meta.traits;
+import :base.hash;
+
+namespace Karm {
+
+template <typename T>
+struct _OptStore;
+
+template <typename T>
+struct _OptStore {
+    struct _Empty {};
+
+    union _Inner {
+        _Empty _empty;
+        T _value;
+
+        constexpr _Inner() : _empty{} {}
+
+        constexpr ~_Inner() {}
+    };
+
+    bool _present{false};
+    _Inner _inner;
+
+    always_inline constexpr _OptStore()
+        : _inner{} {}
+
+    always_inline constexpr ~_OptStore() {
+        clear();
+    }
+
+    // SAFETY: Must only be called on empty store.
+    template <typename... Args>
+    always_inline constexpr T& construct(Args&&... args) {
+        std::construct_at(&_inner._value, std::forward<Args>(args)...);
+        _present = true;
+        return unwrap();
+    }
+
+    template <typename... Args>
+    always_inline constexpr T& emplace(Args&&... args) {
+        clear();
+        std::construct_at(&_inner._value, std::forward<Args>(args)...);
+        _present = true;
+        return unwrap();
+    }
+
+    always_inline constexpr void clear() {
+        if (_present) {
+            _inner._value.~T();
+            _present = false;
+        }
+    }
+
+    always_inline constexpr bool has() const {
+        return _present;
+    }
+
+    always_inline constexpr T& unwrap() {
+        return _inner._value;
+    }
+
+    always_inline constexpr T const& unwrap() const {
+        return _inner._value;
+    }
+
+    [[clang::coro_wrapper]]
+    always_inline constexpr T take() {
+        T v = std::move(_inner._value);
+        clear();
+        return v;
+    }
+};
+
+template <typename T>
+struct _OptStore<T&> {
+    T* _value = nullptr;
+
+    always_inline constexpr ~_OptStore() {
+        clear();
+    }
+
+    // SAFETY: Must only be called on empty store.
+    always_inline constexpr T& construct(T& v) {
+        _value = &v;
+        return unwrap();
+    }
+
+    always_inline constexpr T& emplace(T& v) {
+        _value = &v;
+        return unwrap();
+    }
+
+    always_inline constexpr void clear() {
+        _value = nullptr;
+    }
+
+    always_inline constexpr bool has() const {
+        return _value != nullptr;
+    }
+
+    always_inline constexpr T& unwrap() {
+        return *_value;
+    }
+
+    always_inline constexpr T& unwrap() const {
+        // NOTE: Since this is a specialization for references (T&),
+        //       the const-ness of the Opt container should not affect
+        //       the mutability of the external object being pointed to.
+        return const_cast<T&>(*_value);
+    }
+
+    always_inline constexpr T& take() {
+        T& v = *_value;
+        _value = nullptr;
+        return v;
+    }
+};
+
+export template <Nicheable T>
+struct _OptStore<T> {
+    union {
+        T _value;
+        Niche<T>::Content _content;
+    };
+
+    static_assert(sizeof(T) >= sizeof(typename Niche<T>::Content));
+
+    always_inline constexpr _OptStore()
+        : _content{} {
+    }
+
+    always_inline constexpr ~_OptStore()
+        requires(Meta::TriviallyDestructible<T>)
+    = default;
+
+    always_inline constexpr ~_OptStore() {
+        clear();
+    }
+
+    // SAFETY: Must only be called on empty store.
+    template <typename... Args>
+    always_inline constexpr T& construct(Args&&... args) {
+        std::construct_at(&_value, std::forward<Args>(args)...);
+        return unwrap();
+    }
+
+    template <typename... Args>
+    always_inline constexpr T& emplace(Args&&... args) {
+        clear();
+        std::construct_at(&_value, std::forward<Args>(args)...);
+        return unwrap();
+    }
+
+    always_inline constexpr void clear() {
+        if (has()) {
+            _value.~T();
+            std::construct_at(&_content);
+        }
+    }
+
+    always_inline constexpr bool has() const {
+        if consteval {
+            return __builtin_is_within_lifetime(&_value);
+        }
+
+        return _content.has();
+    }
+
+    always_inline constexpr T& unwrap() {
+        return _value;
+    }
+
+    always_inline constexpr T const& unwrap() const {
+        return _value;
+    }
+
+    always_inline constexpr T take() {
+        T v = std::move(_value);
+        clear();
+        return v;
+    }
+};
+
+template <typename>
+inline constexpr bool _AnyOpt = false;
+
+template <typename T>
+inline constexpr bool _AnyOpt<Opt<T>> = true;
+
+template <typename T>
+concept AnyOpt = _AnyOpt<T>;
+
+export template <typename T>
+struct [[nodiscard]] Opt {
+    using Value = Meta::RemoveRef<T>;
+
+    _OptStore<T> _store{};
+
+    always_inline constexpr Opt() {}
+
+    always_inline constexpr Opt(None) {}
+
+    template <typename U = T>
+    always_inline constexpr Opt(Some<U> const& value)
+        requires(
+            (Meta::CopyConstructible<T, U> or Meta::LvalueRef<T>)
+        )
+    {
+        _store.construct(value.unwrap());
+    }
+
+    template <typename U = T>
+    always_inline constexpr Opt(Some<U>&& value)
+        requires(
+            (Meta::MoveConstructible<T, U> or Meta::LvalueRef<T>)
+        )
+    {
+        _store.construct(value.take());
+    }
+
+    always_inline constexpr Opt(Opt const& other)
+        requires(Meta::CopyConstructible<T> or Meta::LvalueRef<T>)
+    {
+        if (other.has())
+            _store.construct(other.expect());
+    }
+
+    always_inline constexpr Opt(Opt&& other)
+        requires(Meta::MoveConstructible<T> or Meta::LvalueRef<T>)
+    {
+        if (other.has())
+            _store.construct(other.take());
+    }
+
+    template <typename U>
+    always_inline constexpr Opt(Opt<U> const& other)
+        requires(Meta::CopyConstructible<T> or Meta::LvalueRef<T>)
+    {
+        if (other.has())
+            _store.construct(other.expect());
+    }
+
+    template <typename U>
+    always_inline constexpr Opt(Opt<U>& other)
+        requires(Meta::LvalueRef<T>)
+    {
+        if (other.has())
+            _store.construct(other.expect());
+    }
+
+    template <typename U>
+    always_inline constexpr Opt(Opt<U>&& other)
+        requires(Meta::MoveConstructible<T> or Meta::LvalueRef<T>)
+    {
+        if (other.has())
+            _store.construct(other.take());
+    }
+
+    always_inline constexpr ~Opt() = default;
+
+    always_inline constexpr Opt& operator=(None) {
+        _store.clear();
+        return *this;
+    }
+
+    template <typename U = T>
+        requires(
+            (Meta::Convertible<U, T> or Meta::LvalueRef<T>)
+        )
+    always_inline constexpr Opt& operator=(Some<U>& value) {
+        _store.emplace(value.take());
+        return *this;
+    }
+
+    template <typename U = T>
+        requires(Meta::MoveConstructible<T, U>)
+    always_inline constexpr Opt& operator=(Some<U>&& value) {
+        _store.emplace(value.take());
+        return *this;
+    }
+
+    always_inline constexpr Opt& operator=(Opt const& other)
+        requires(Meta::CopyConstructible<T> or Meta::LvalueRef<T>)
+    {
+        clear();
+        if (other.has())
+            _store.emplace(other.expect());
+        return *this;
+    }
+
+    always_inline constexpr Opt& operator=(Opt&& other)
+        requires(Meta::MoveConstructible<T> or Meta::LvalueRef<T>)
+    {
+        clear();
+        if (other.has())
+            _store.emplace(other.take());
+
+        return *this;
+    }
+
+    template <typename U = T>
+    always_inline constexpr Opt& operator=(Opt<U> const& other)
+        requires(Meta::CopyConstructible<T, U> or Meta::LvalueRef<T>)
+    {
+        clear();
+        if (other.has())
+            _store.emplace(other.expect());
+        return *this;
+    }
+
+    template <typename U>
+    always_inline constexpr Opt& operator=(Opt<U>&& other)
+        requires(Meta::MoveConstructible<T, U> or Meta::LvalueRef<T>)
+    {
+        clear();
+        if (other.has())
+            _store.emplace(other.take());
+
+        return *this;
+    }
+
+    always_inline constexpr explicit operator bool() const {
+        return _store.has();
+    }
+
+    always_inline constexpr bool has() const {
+        return _store.has();
+    }
+
+    always_inline constexpr Value* operator->() lifetimebound {
+        if (not _store.has()) [[unlikely]]
+            panic("unwrapping None");
+
+        return &_store.unwrap();
+    }
+
+    always_inline constexpr Value& operator*() lifetimebound {
+        if (not _store.has()) [[unlikely]]
+            panic("unwrapping None");
+
+        return _store.unwrap();
+    }
+
+    always_inline constexpr auto* operator->() const lifetimebound {
+        if (not _store.has()) [[unlikely]]
+            panic("unwrapping None");
+
+        return &_store.unwrap();
+    }
+
+    always_inline constexpr auto& operator*() const lifetimebound {
+        if (not _store.has()) [[unlikely]]
+            panic("unwrapping None");
+
+        return _store.unwrap();
+    }
+
+    template <typename... Args>
+    always_inline constexpr Value& emplace(Args&&... args) lifetimebound {
+        return _store.emplace(std::forward<Args>(args)...);
+    }
+
+    always_inline constexpr void clear() {
+        _store.clear();
+    }
+
+    always_inline constexpr None none() const {
+        return NONE;
+    }
+
+    always_inline constexpr Value& expect(char const* msg = "expecting some, got none") lifetimebound {
+        if (not _store.has()) [[unlikely]]
+            panic(msg);
+        return _store.unwrap();
+    }
+
+    always_inline constexpr auto& expect(char const* msg = "expecting some, got none") const lifetimebound {
+        if (not _store.has()) [[unlikely]]
+            panic(msg);
+        return _store.unwrap();
+    }
+
+    always_inline constexpr Value unwrapOr(Value other) const {
+        if (_store.has())
+            return _store.unwrap();
+        return other;
+    }
+
+    always_inline constexpr auto unwrapOrElse(auto f) const -> decltype(f()) {
+        if (_store.has())
+            return _store.unwrap();
+        return f();
+    }
+
+    template <typename E>
+    always_inline constexpr Res<T, E> okOr(E error) const {
+        if (not has())
+            return error;
+        return Ok(expect());
+    }
+
+    [[clang::coro_wrapper]]
+    always_inline constexpr T take(char const* msg = "unwrapping none") {
+        if (not _store.has()) [[unlikely]]
+            panic(msg);
+        return _store.take();
+    }
+
+    always_inline constexpr auto visit(auto visitor)
+        -> decltype(visitor(_store.unwrap())) {
+        if (_store.has())
+            return visitor(_store.unwrap());
+        return visitor(NONE);
+    }
+
+    always_inline constexpr auto visit(auto visitor) const
+        -> decltype(visitor(_store.unwrap())) {
+        if (_store.has())
+            return visitor(_store.unwrap());
+        return visitor(NONE);
+    }
+
+    always_inline constexpr auto map(auto f) const -> Opt<decltype(f(expect()))> {
+        if (_store.has())
+            return {Some(f(expect()))};
+        return {NONE};
+    }
+
+    // call operator
+    template <typename... Args>
+    always_inline constexpr auto operator()(Args&&... args) {
+        using OptRet = Opt<Meta::Ret<T, Args...>>;
+
+        if constexpr (Meta::Same<void, Meta::Ret<T, Args...>>) {
+            // Handle void return type
+            if (not _store.has()) {
+                return false;
+            }
+            expect()(std::forward<Args>(args)...);
+            return true;
+        } else {
+            // Handle non-void return type
+            if (not _store.has()) {
+                return OptRet{NONE};
+            }
+
+            return OptRet{expect()(std::forward<Args>(args)...)};
+        }
+    }
+
+    // call operator
+    template <typename... Args>
+    always_inline constexpr auto operator()(Args&&... args) const {
+        using OptRet = Opt<Meta::Ret<T, Args...>>;
+
+        if constexpr (Meta::Same<void, Meta::Ret<T, Args...>>) {
+            // Handle void return type
+            if (not _store.has()) {
+                return false;
+            }
+            expect()(std::forward<Args>(args)...);
+            return true;
+        } else {
+            // Handle non-void return type
+            if (not _store.has()) {
+                return OptRet{NONE};
+            }
+
+            return OptRet{Some(expect()(std::forward<Args>(args)...))};
+        }
+    }
+
+    always_inline constexpr bool operator==(None) const {
+        return not _store.has();
+    }
+
+    template <typename U>
+        requires Meta::Equatable<T, U>
+    always_inline constexpr bool operator==(U const& other) const {
+        if (_store.has())
+            return _store.unwrap() == other;
+        return false;
+    }
+
+    template <typename U>
+        requires Meta::Comparable<T, U>
+    always_inline constexpr std::partial_ordering operator<=>(U const& other) const {
+        if (_store.has())
+            return _store.unwrap() <=> other;
+        return std::partial_ordering::unordered;
+    }
+
+    template <typename U>
+    always_inline constexpr bool operator==(Opt<U> const& other) const {
+        if constexpr (Meta::Equatable<T, U>)
+            if (has() and other.has())
+                return expect() == other.expect();
+        return not has() and not other.has();
+    }
+
+    template <typename U>
+    always_inline constexpr std::partial_ordering operator<=>(Opt<U> const& other) const {
+        if constexpr (Meta::Comparable<T, U>)
+            if (has() and other.has())
+                return expect() <=> other.expect();
+        return std::partial_ordering::unordered;
+    }
+
+    void hash(Meta::Derive<Hasher> auto& h) const {
+        if (has())
+            Karm::hash(h, expect());
+        else
+            Karm::hash(h, NONE);
+    }
+
+    template <usize>
+    constexpr T& get() & {
+        return _store.unwrap();
+    }
+
+    template <usize>
+    constexpr T const& get() const& {
+        return _store.unwrap();
+    }
+};
+
+export template <typename T>
+Opt(Some<T>) -> Opt<T>;
+
+} // namespace Karm
+
+export template <typename T>
+struct std::tuple_size<Karm::Opt<T>> {
+    static constexpr Karm::usize value = 1;
+};
+
+export template <Karm::usize I, typename T>
+struct std::tuple_element<I, Karm::Opt<T>> {
+    using type = T;
+};
+
+export template <typename T>
+struct std::tuple_size<Karm::Opt<T> const> {
+    static constexpr Karm::usize value = 1;
+};
+
+export template <Karm::usize I, typename T>
+struct std::tuple_element<I, Karm::Opt<T> const> {
+    using type = T const;
+};

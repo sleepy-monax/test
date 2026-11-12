@@ -1,0 +1,210 @@
+module;
+
+#include <karm/macros>
+#include <sys/event.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#ifdef __ck_sys_freebsd__
+#    define kevent64 kevent
+#    define kevent64_s kevent
+#endif
+
+module Karm.Sys;
+
+import Karm.Sys.Posix;
+import Karm.Core;
+
+namespace Karm::Sys::_Embed {
+
+struct DarwinSched :
+    Sys::Sched {
+
+    int _kqueue;
+    usize _id = 0;
+    Map<usize, Async::Promise<>> _promises;
+
+    DarwinSched(int kqueue)
+        : _kqueue(kqueue) {
+    }
+
+    ~DarwinSched() {
+        close(_kqueue);
+    }
+
+    struct timespec _computeTimeout(Instant until) {
+        Instant now = Sys::instant();
+        Duration delta = Duration::ZERO;
+        if (now < until)
+            delta = until - now;
+        return Posix::toTimespec(delta);
+    }
+
+    [[clang::coro_wrapper]]
+    Async::Task<> waitFor(struct kevent64_s ev) {
+        usize id = _id++;
+        auto promise = Async::Promise<>();
+        auto future = promise.future();
+
+        ev.udata = (decltype(ev.udata))id;
+        ::kevent64(
+            _kqueue,
+
+            &ev,
+            1,
+
+            nullptr,
+            0,
+
+#ifdef __ck_sys_darwin__
+            0,
+#endif
+            nullptr
+        );
+
+        _promises.put(id, std::move(promise));
+        return Async::makeTask(future);
+    }
+
+    Async::Task<usize> readAsync(Rc<Fd> fd, MutBytes buf, Async::CancellationToken) override {
+        co_trya$(waitFor({
+            .ident = (u64)co_try$(Posix::ensurePosixFd(fd))->_raw,
+            .filter = EVFILT_READ,
+            .flags = EV_ADD | EV_ONESHOT,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+            .ext = {},
+        }));
+        co_return Ok(co_try$(fd->read(buf)));
+    }
+
+    Async::Task<usize> writeAsync(Rc<Fd> fd, Bytes buf, Async::CancellationToken) override {
+        co_trya$(waitFor({
+            .ident = (u64)co_try$(Posix::ensurePosixFd(fd))->_raw,
+            .filter = EVFILT_WRITE,
+            .flags = EV_ADD | EV_ONESHOT,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+            .ext = {},
+        }));
+        co_return Ok(co_try$(fd->write(buf)));
+    }
+
+    Async::Task<> flushAsync(Rc<Fd> fd, Async::CancellationToken) override {
+        co_trya$(waitFor({
+            .ident = (u64)co_try$(Posix::ensurePosixFd(fd))->_raw,
+            .filter = EVFILT_WRITE,
+            .flags = EV_ADD | EV_ONESHOT,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+            .ext = {},
+        }));
+        co_return Ok(co_try$(fd->flush()));
+    }
+
+    Async::Task<_Accepted> acceptAsync(Rc<Fd> fd, Async::CancellationToken) override {
+        co_trya$(waitFor({
+            .ident = (u64)co_try$(Posix::ensurePosixFd(fd))->_raw,
+            .filter = EVFILT_READ,
+            .flags = EV_ADD | EV_ONESHOT,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+            .ext = {},
+        }));
+        co_return Ok(co_try$(fd->accept()));
+    }
+
+    Async::Task<_Sent> sendAsync(Rc<Fd> fd, Bytes buf, Slice<Handle> handles, SocketAddr addr, Async::CancellationToken) override {
+        co_trya$(waitFor({
+            .ident = (u64)co_try$(Posix::ensurePosixFd(fd))->_raw,
+            .filter = EVFILT_WRITE,
+            .flags = EV_ADD | EV_ONESHOT,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+            .ext = {},
+        }));
+        co_return Ok(co_try$(fd->send(buf, handles, addr)));
+    }
+
+    Async::Task<_Received> recvAsync(Rc<Fd> fd, MutBytes buf, MutSlice<Handle> hnds, Async::CancellationToken) override {
+        co_trya$(waitFor({
+            .ident = (u64)co_try$(Posix::ensurePosixFd(fd))->_raw,
+            .filter = EVFILT_READ,
+            .flags = EV_ADD | EV_ONESHOT,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+            .ext = {},
+        }));
+        co_return Ok(co_try$(fd->recv(buf, hnds)));
+    }
+
+    Async::Task<> sleepAsync(Instant until, Async::CancellationToken) override {
+        struct timespec ts = _computeTimeout(until);
+
+        co_trya$(waitFor({
+            .ident = 0,
+            .filter = EVFILT_TIMER,
+            .flags = EV_ADD | EV_ONESHOT,
+            .fflags = NOTE_NSECONDS,
+            .data = ts.tv_sec * 1'000'000'000 + ts.tv_nsec,
+            .udata = 0,
+            .ext = {},
+        }));
+        co_return Ok();
+    }
+
+    [[clang::coro_wrapper]]
+    Async::Task<Flags<Poll>> pollAsync(Rc<Fd>, Flags<Poll>, Async::CancellationToken) override {
+        notImplemented();
+    }
+
+    Res<> wait(Instant until) override {
+        struct kevent64_s ev;
+        struct timespec ts = _computeTimeout(until);
+
+        int n = ::kevent64(
+            _kqueue,
+
+            nullptr,
+            0,
+
+            &ev,
+            1,
+
+#ifdef __ck_sys_darwin__
+            0,
+#endif
+            until.isEndOfTime() ? nullptr : &ts
+        );
+
+        if (n < 0)
+            return Posix::fromLastErrno();
+
+        if (n == 0)
+            return Ok();
+
+        usize id = (usize)ev.udata;
+        auto promise = _promises.remove(id);
+        promise->resolve(Ok());
+        return Ok();
+    }
+};
+
+Sched& globalSched() {
+    static DarwinSched sched = [] {
+        int kqueue = ::kqueue();
+        if (kqueue < 0)
+            panic("kqueue");
+        return DarwinSched(kqueue);
+    }();
+    return sched;
+}
+
+} // namespace Karm::Sys::_Embed

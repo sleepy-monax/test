@@ -1,0 +1,742 @@
+export module Karm.Ui:input;
+
+import Karm.Gfx;
+import Karm.Math;
+
+import :drag;
+import :focus;
+import :funcs;
+import :layout;
+import :atoms;
+import :view;
+import :text;
+
+using namespace Karm::Math::Literals;
+
+namespace Karm::Ui {
+
+// MARK: Button ----------------------------------------------------------------
+
+export struct MouseListener {
+    enum MouseState {
+        IDLE,
+        HOVER,
+        PRESS,
+    };
+
+    MouseState _state = IDLE;
+    Math::Vec2Au _pos = {0_au, 0_au};
+
+    auto state() const {
+        return _state;
+    }
+
+    bool isIdle() const {
+        return _state == IDLE;
+    }
+
+    bool isHover() const {
+        return _state == HOVER;
+    }
+
+    bool isPress() const {
+        return _state == PRESS;
+    }
+
+    auto pos() const {
+        return _pos;
+    }
+
+    bool listen(Node& node, App::Event& event) {
+        bool result = false;
+        MouseState state = _state;
+
+        if (auto e = event.is<App::MouseEvent>()) {
+            if (not node.bound().contains(e->pos.cast<Au>())) {
+                if (state != PRESS or e->type == App::MouseEvent::RELEASE)
+                    state = IDLE;
+            } else {
+                if (state != PRESS) {
+                    state = HOVER;
+                }
+
+                _pos = e->pos.cast<Au>() - node.bound().topStart();
+
+                if (e->type == App::MouseEvent::PRESS and
+                    e->button == App::MouseButton::LEFT) {
+                    state = PRESS;
+                    event.accept();
+                } else if (e->type == App::MouseEvent::RELEASE and e->button == App::MouseButton::LEFT) {
+                    if (state == PRESS) {
+                        state = HOVER;
+                        result = true;
+                        event.accept();
+                    }
+                }
+            }
+        } else if (auto e = event.is<App::MouseLeaveEvent>()) {
+            state = IDLE;
+        }
+
+        if (state != _state) {
+            _state = state;
+            shouldRepaint(node);
+        }
+
+        return result;
+    }
+};
+
+export struct ButtonStyle {
+    static constexpr isize RADIUS = 4;
+
+    BoxStyle idleStyle{};
+    BoxStyle hoverStyle{};
+    BoxStyle pressStyle{};
+    BoxStyle disabledStyle = {
+        .foregroundFill = GRAY600,
+    };
+
+    static ButtonStyle none() {
+        return {};
+    }
+
+    static ButtonStyle regular(Gfx::ColorRamp ramp = GRAYS) {
+        return {
+            .idleStyle = {
+                .borderRadii = RADIUS,
+                .backgroundFill = Some(ramp[8]),
+            },
+            .hoverStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .backgroundFill = Some(ramp[7]),
+            },
+            .pressStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .borderFill = Some(ramp[7]),
+                .backgroundFill = Some(ramp[8]),
+            },
+        };
+    }
+
+    static ButtonStyle secondary() {
+        return {
+            .idleStyle = {
+                .borderRadii = RADIUS,
+                .backgroundFill = Some(GRAY900),
+            },
+            .hoverStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .backgroundFill = Some(GRAY800),
+            },
+            .pressStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .borderFill = Some(GRAY800),
+                .backgroundFill = Some(GRAY900),
+            },
+        };
+    }
+
+    static ButtonStyle primary() {
+        return {
+            .idleStyle = {
+                .borderRadii = RADIUS,
+                .backgroundFill = Some(ACCENT500),
+                .foregroundFill = Gfx::WHITE,
+            },
+            .hoverStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .backgroundFill = Some(ACCENT400),
+                .foregroundFill = Gfx::WHITE,
+            },
+            .pressStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .borderFill = Some(ACCENT400),
+                .backgroundFill = Some(ACCENT500),
+                .foregroundFill = Gfx::WHITE,
+            },
+        };
+    }
+
+    static ButtonStyle outline() {
+        return {
+            .idleStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .borderFill = Some(GRAY800),
+            },
+            .hoverStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .backgroundFill = Some(GRAY700),
+            },
+            .pressStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .borderFill = Some(GRAY700),
+                .backgroundFill = Some(GRAY800),
+            },
+        };
+    }
+
+    static ButtonStyle subtle() {
+        return {
+            .idleStyle = {
+                .foregroundFill = GRAY300,
+            },
+            .hoverStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .backgroundFill = Some(GRAY700),
+            },
+            .pressStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .borderFill = Some(GRAY700),
+                .backgroundFill = Some(GRAY800),
+            },
+        };
+    }
+
+    static ButtonStyle text() {
+        return {
+            .idleStyle = {
+                .foregroundFill = GRAY300,
+            },
+            .pressStyle = {
+                .foregroundFill = GRAY300,
+            },
+        };
+    }
+
+    static ButtonStyle destructive() {
+        return {
+            .idleStyle = {
+                .borderRadii = RADIUS,
+                .backgroundFill = Some(Gfx::RED950),
+                .foregroundFill = Gfx::RED300,
+            },
+            .hoverStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .backgroundFill = Some(Gfx::RED900),
+            },
+            .pressStyle = {
+                .borderRadii = RADIUS,
+                .borderWidth = 1,
+                .borderFill = Some(Gfx::RED600),
+                .backgroundFill = Some(Gfx::RED800),
+            },
+        };
+    }
+
+    ButtonStyle withRadii(Math::Radiif radii) const {
+        return {
+            idleStyle.withRadii(radii),
+            hoverStyle.withRadii(radii),
+            pressStyle.withRadii(radii),
+        };
+    }
+
+    ButtonStyle withForegroundFill(Gfx::Fill fill) const {
+        return {
+            idleStyle.withForegroundFill(fill),
+            hoverStyle.withForegroundFill(fill),
+            pressStyle.withForegroundFill(fill),
+        };
+    }
+
+    ButtonStyle withPadding(Math::InsetsAu insets) const {
+        return {
+            idleStyle.withPadding(insets),
+            hoverStyle.withPadding(insets),
+            pressStyle.withPadding(insets),
+        };
+    }
+
+    ButtonStyle withMargin(Math::InsetsAu insets) const {
+        return {
+            idleStyle.withMargin(insets),
+            hoverStyle.withMargin(insets),
+            pressStyle.withMargin(insets),
+        };
+    }
+};
+
+struct Button : _Box<Button> {
+    Opt<Send<>> _onPress;
+    ButtonStyle _buttonStyle = ButtonStyle::regular();
+    MouseListener _mouseListener;
+
+    Button(Opt<Send<>> onPress, ButtonStyle style, Child child)
+        : _Box(child),
+          _onPress(std::move(onPress)),
+          _buttonStyle(style) {}
+
+    void reconcile(Button& o) override {
+        _buttonStyle = o._buttonStyle;
+        _onPress = std::move(o._onPress);
+
+        if (not _onPress) {
+            // Reset the mouse listener if the button is disabled.
+            _mouseListener = {};
+        }
+
+        _Box<Button>::reconcile(o);
+    }
+
+    BoxStyle& boxStyle() override {
+        if (not _onPress) {
+            return _buttonStyle.disabledStyle;
+        } else if (_mouseListener.isIdle()) {
+            return _buttonStyle.idleStyle;
+        } else if (_mouseListener.isHover()) {
+            return _buttonStyle.hoverStyle;
+        } else {
+            return _buttonStyle.pressStyle;
+        }
+    }
+
+    void event(App::Event& e) override {
+        _Box<Button>::event(e);
+        if (e.accepted())
+            return;
+
+        if (_onPress and (_mouseListener.listen(*this, e) or e.is<KeyboardShortcutActivated>())) {
+            _onPress(*this);
+        }
+    };
+
+    App::HitResult hitTest(Math::Vec2Au) override {
+        return App::HitResult::HIT;
+    }
+};
+
+export Child button(Opt<Send<>> onPress, ButtonStyle style, Child child) {
+    return makeRc<Button>(std::move(onPress), style, child);
+}
+
+export auto button(Opt<Send<>> onPress, ButtonStyle style) {
+    return [onPress = std::move(onPress), style](Child child) mutable {
+        return button(std::move(onPress), style, child);
+    };
+}
+
+export Child button(Opt<Send<>> onPress, ButtonStyle style, Str t) {
+    return text(t) |
+           insets({4_au, 14_au}) |
+           center() |
+           minSize({UNCONSTRAINED, 32_au}) |
+           button(std::move(onPress), style);
+}
+
+export Child button(Opt<Send<>> onPress, ButtonStyle style, Gfx::Icon i) {
+    return icon(i) |
+           insets(4_au) |
+           center() |
+           minSize({32_au, 32_au}) |
+           button(std::move(onPress), style);
+}
+
+export Child button(Opt<Send<>> onPress, ButtonStyle style, Gfx::Icon i, Str t) {
+    return hflow(8_au, Math::Align::CENTER, icon(i), text(t)) |
+           insets({4_au, 14_au, 4_au, 10_au}) |
+           minSize({UNCONSTRAINED, 32_au}) |
+           button(std::move(onPress), style);
+}
+
+export Child button(Opt<Send<>> onPress, Child child) {
+    return button(std::move(onPress), ButtonStyle::regular(), child);
+}
+
+export auto button(Opt<Send<>> onPress) {
+    return [onPress = std::move(onPress)](Child child) mutable {
+        return button(std::move(onPress), child);
+    };
+}
+
+export Child button(Opt<Send<>> onPress, Str t) {
+    return button(std::move(onPress), ButtonStyle::regular(), t);
+}
+
+export Child button(Opt<Send<>> onPress, Gfx::Icon i) {
+    return button(std::move(onPress), ButtonStyle::regular(), i);
+}
+
+export Child button(Opt<Send<>> onPress, Gfx::Icon i, Str t) {
+    return button(std::move(onPress), ButtonStyle::regular(), i, t);
+}
+
+// MARK: Input -----------------------------------------------------------------
+
+static void _paintCaret(Gfx::Canvas& g, Gfx::Prose& p, usize runeIndex, Gfx::Color color) {
+    auto [baseline, ascend, descend] = p.queryCaret(runeIndex);
+    auto cs = baseline - Vec2Au{0_au, ascend};
+    auto ce = baseline + Vec2Au{0_au, descend};
+
+    g.beginPath();
+    g.moveTo(cs.cast<f64>());
+    g.lineTo(ce.cast<f64>());
+    g.strokeStyle({
+        .fill = color,
+        .width = 1.0,
+        .align = Gfx::CENTER_ALIGN,
+    });
+    g.stroke();
+}
+
+static void _paintSelection(Gfx::Canvas& g, Gfx::Prose& p, usize start, usize end, Gfx::Color color) {
+    if (start == end or isEmpty(p._lines))
+        return;
+
+    if (start > end)
+        std::swap(start, end);
+
+    auto [startLi, startBi, startCi] = p.lbcAt(start);
+    auto [endLi, endBi, endCi] = p.lbcAt(end);
+
+    g.fillStyle(color);
+
+    for (usize li = startLi; li <= endLi; li++) {
+        auto& line = p._lines[li];
+
+        auto lineStart = (li == startLi)
+                             ? p.queryPosition(start)
+                             : Vec2Au{0_au, line.baseline};
+
+        auto lineEnd = (li == endLi)
+                           ? p.queryPosition(end)
+                           : Vec2Au{line.width, line.baseline};
+
+        g.fill(
+            RectAu::fromTwoPoint(
+                lineStart + Vec2Au{0_au, line.descend},
+                lineEnd - Vec2Au{0_au, line.ascent}
+            )
+                .cast<f64>()
+        );
+    }
+}
+
+struct Input : View<Input> {
+    Gfx::ProseProps _style;
+
+    FocusListener _focus;
+    Rc<TextModel> _model;
+    Send<TextAction> _onChange;
+    bool _mouseDown = false;
+    SelectionBoundary _selectionBoundary = SelectionBoundary::RUNE;
+
+    Opt<Rc<Gfx::Prose>> _text;
+
+    Input(Gfx::ProseProps style, Rc<TextModel> model, Send<TextAction> onChange)
+        : _style(style), _model(model), _onChange(std::move(onChange)) {}
+
+    void reconcile(Input& o) override {
+        _style = o._style;
+        _model = o._model;
+        _onChange = std::move(o._onChange);
+
+        // NOTE: The model might have changed,
+        //       so we need to invalidate the presentation.
+        _text = NONE;
+    }
+
+    Rc<Gfx::Prose> _ensureText() {
+        if (not _text) {
+            _style.collapseEmptyLines = false;
+            _text = Some(makeRc<Gfx::Prose>(_style, _style));
+            (*_text)->append(_model->runes());
+        }
+        return *_text;
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu) override {
+        g.push();
+        g.clip(bound().cast<f64>());
+        g.origin(bound().xy.cast<f64>());
+
+        auto text = _ensureText();
+
+        if (_focus) {
+            g.push();
+            _paintSelection(g, *text, _model->_cur.head, _model->_cur.tail, ACCENT500.withOpacity(0.5));
+            _paintCaret(g, *text, _model->_cur.head, _style.color.unwrapOr(GRAY100));
+            g.pop();
+        }
+
+        g.fill(text);
+
+        g.pop();
+    }
+
+    void event(App::Event& e) override {
+        _focus.event(*this, e);
+
+        if (auto me = e.is<App::MouseEvent>()) {
+            if (me->type == App::MouseEvent::PRESS and
+                me->button == App::MouseButton::LEFT and
+                bound().contains(me->pos.cast<Au>())) {
+                _ensureText()->layout(bound().width);
+                auto pos = _ensureText()->hitTest(me->pos.cast<Au>() - bound().xy);
+                _mouseDown = true;
+                _selectionBoundary =
+                    me->clicks == 1
+                        ? SelectionBoundary::RUNE
+                    : me->clicks == 2 ? SelectionBoundary::WORD
+                                      : SelectionBoundary::LINE;
+                _onChange(*this, TextAction::moveTo(pos, _selectionBoundary));
+                e.accept();
+            } else if (me->type == App::MouseEvent::MOVE and _mouseDown) {
+                _ensureText()->layout(bound().width);
+                auto pos = _ensureText()->hitTest(me->pos.cast<Au>() - bound().xy);
+                _onChange(*this, TextAction::selectTo(pos, _selectionBoundary));
+                e.accept();
+            } else if (me->type == App::MouseEvent::RELEASE and me->button == App::MouseButton::LEFT) {
+                _mouseDown = false;
+                _selectionBoundary = SelectionBoundary::RUNE;
+            }
+            return;
+        }
+
+        auto a = TextAction::fromEvent(e);
+        if (a) {
+            e.accept();
+            _onChange(*this, *a);
+        }
+    }
+
+    void layout(Math::RectAu bound) override {
+        _ensureText()->layout(bound.width);
+        View<Input>::layout(bound);
+    }
+
+    Math::Vec2Au size(Math::Vec2Au s, Hint) override {
+        auto size = _ensureText()->layout(s.width);
+        // NOTE: Ensure the input is always at least 1 pixel wide to show the caret.
+        size.x = max(size.x, 1_au);
+        return size;
+    }
+
+    App::HitResult hitTest(Math::Vec2Au) override {
+        return App::HitResult::HIT;
+    }
+};
+
+export Child input(Gfx::ProseProps style, Rc<TextModel> text, Send<TextAction> onChange) {
+    return makeRc<Input>(style, text, std::move(onChange));
+}
+
+export Child input(Rc<TextModel> text, Send<TextAction> onChange) {
+    return makeRc<Input>(TextStyles::bodyMedium(), text, std::move(onChange));
+}
+
+struct SimpleInput : View<SimpleInput> {
+    Gfx::ProseProps _style;
+    String _text;
+    Send<String> _onChange;
+
+    FocusListener _focus;
+    Opt<TextModel> _model;
+    Opt<Rc<Gfx::Prose>> _prose;
+    bool _mouseDown = false;
+    SelectionBoundary _selectionBoundary = SelectionBoundary::RUNE;
+
+    SimpleInput(Gfx::ProseProps style, String text, Send<String> onChange)
+        : _style(style),
+          _text(text),
+          _onChange(std::move(onChange)) {}
+
+    void reconcile(SimpleInput& o) override {
+        _style = o._style;
+        _onChange = std::move(o._onChange);
+        if (_text != o._text) {
+            _text = o._text;
+            _model = NONE;
+            _prose = NONE;
+        }
+
+        // NOTE: The model might have changed,
+        //       so we need to invalidate the presentation.
+        _prose = NONE;
+    }
+
+    TextModel& _ensureModel() {
+        if (not _model)
+            _model = Some(TextModel(_text));
+        return *_model;
+    }
+
+    Rc<Gfx::Prose> _ensureText() {
+        if (not _prose) {
+            _style.collapseEmptyLines = false;
+            _prose = Some(makeRc<Gfx::Prose>(_style, _style));
+            (*_prose)->append(_ensureModel().runes());
+        }
+        return *_prose;
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu) override {
+        g.push();
+        g.clip(bound().cast<f64>());
+        g.origin(bound().xy.cast<f64>());
+
+        auto text = _ensureText();
+
+        if (_focus) {
+            g.push();
+            _paintSelection(g, *text, _model->_cur.head, _model->_cur.tail, ACCENT500.withOpacity(0.5));
+            _paintCaret(g, *text, _ensureModel()._cur.head, _style.color.unwrapOr(GRAY100));
+            g.pop();
+        }
+
+        g.fill(text);
+
+        g.pop();
+    }
+
+    void event(App::Event& e) override {
+        _focus.event(*this, e);
+
+        if (auto me = e.is<App::MouseEvent>()) {
+            if (me->type == App::MouseEvent::PRESS and
+                me->button == App::MouseButton::LEFT and
+                bound().contains(me->pos.cast<Au>())) {
+                _ensureText()->layout(bound().width);
+                auto pos = _ensureText()->hitTest(me->pos.cast<Au>() - bound().xy);
+                _mouseDown = true;
+                _selectionBoundary =
+                    me->clicks == 1
+                        ? SelectionBoundary::RUNE
+                    : me->clicks == 2 ? SelectionBoundary::WORD
+                                      : SelectionBoundary::LINE;
+                _ensureModel().reduce(TextAction::moveTo(pos, _selectionBoundary));
+                e.accept();
+                shouldRepaint(*this);
+            } else if (me->type == App::MouseEvent::MOVE and _mouseDown) {
+                _ensureText()->layout(bound().width);
+                auto pos = _ensureText()->hitTest(me->pos.cast<Au>() - bound().xy);
+                _ensureModel().reduce(TextAction::selectTo(pos, _selectionBoundary));
+                e.accept();
+                shouldRepaint(*this);
+            } else if (me->type == App::MouseEvent::RELEASE and me->button == App::MouseButton::LEFT) {
+                _mouseDown = false;
+                _selectionBoundary = SelectionBoundary::RUNE;
+            }
+            return;
+        }
+
+        auto a = TextAction::fromEvent(e);
+        if (a and a->op == TextAction::NEWLINE and not _style.multiline)
+            a = NONE;
+        if (a) {
+            e.accept();
+            _ensureModel().reduce(*a);
+            _text = _ensureModel().string();
+            _prose = NONE;
+            _onChange(*this, _text);
+        }
+    }
+
+    void layout(Math::RectAu bound) override {
+        _ensureText()->layout(bound.width);
+        View::layout(bound);
+    }
+
+    Math::Vec2Au size(Math::Vec2Au s, Hint) override {
+        auto size = _ensureText()->layout(s.width);
+        // NOTE: Ensure the input is always at least 1 pixel wide to show the caret.
+        size.x = max(size.x, 1_au);
+        return size;
+    }
+
+    App::HitResult hitTest(Math::Vec2Au) override {
+        return App::HitResult::HIT;
+    }
+};
+
+export Child input(Gfx::ProseProps style, String text, Send<String> onChange) {
+    return makeRc<SimpleInput>(style, text, std::move(onChange));
+}
+
+// MARK: Slider ----------------------------------------------------------------
+
+struct Slider : ProxyNode<Slider> {
+    f64 _value = 0.0f;
+    Send<f64> _onChange;
+    Math::RectAu _bound;
+    bool _grabbed = false;
+
+    Slider(f64 value, Send<f64> onChange, Child child)
+        : ProxyNode<Slider>(std::move(child)),
+          _value(value),
+          _onChange(std::move(onChange)) {
+    }
+
+    void reconcile(Slider& o) override {
+        _value = o._value;
+        _onChange = o._onChange;
+
+        ProxyNode<Slider>::reconcile(o);
+    }
+
+    void layout(Math::RectAu r) override {
+        _bound = r;
+        child().layout(_bound.hsplit(((r.width - r.height) * _value) + r.height).v0);
+    }
+
+    Math::RectAu bound() override {
+        return _bound;
+    }
+
+    void event(App::Event& e) override {
+        ProxyNode::event(e);
+
+        if (e.accepted())
+            return;
+
+        if (auto it = e.is<App::MouseEvent>(); it and _grabbed) {
+            if (it->type == App::MouseEvent::RELEASE) {
+                _grabbed = false;
+                e.accept();
+            } else if (it->type == App::MouseEvent::MOVE) {
+                auto max = bound().width - bound().height;
+                auto value = max * _value;
+                value = clamp(value + Au{it->delta.x}, 0_au, max);
+                _value = value / max;
+                _onChange(*this, _value);
+                e.accept();
+            }
+        }
+    }
+
+    void bubble(App::Event& e) override {
+        if (e.is<App::DragStartEvent>()) {
+            _grabbed = true;
+            e.accept();
+        }
+        ProxyNode::bubble(e);
+    }
+
+    App::HitResult hitTest(Math::Vec2Au) override {
+        return App::HitResult::HIT;
+    }
+};
+
+export Child slider(f64 value, Send<f64> onChange, Child child) {
+    return makeRc<Slider>(value, std::move(onChange), std::move(child));
+}
+
+export auto slider(f64 value, Send<f64> onChange) {
+    return [value, onChange = std::move(onChange)](Child child) mutable {
+        return slider(value, std::move(onChange), std::move(child));
+    };
+}
+
+} // namespace Karm::Ui

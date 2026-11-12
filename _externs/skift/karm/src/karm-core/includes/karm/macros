@@ -1,0 +1,50 @@
+#pragma once
+
+#define lifetimebound [[clang::lifetimebound]]
+#define __concat$(LHS, RHS) LHS##RHS
+#define concat$(LHS, RHS) __concat$(LHS, RHS)
+#define __stringify$(SYM) #SYM
+#define stringify$(SYM) __stringify$(SYM)
+#define var$(NAME) concat$(__m_##NAME##_, __LINE__)
+#define unique$(NAME) concat$(__m_##NAME##_, __COUNTER__)
+#define always_inline [[gnu::always_inline]]
+
+#ifndef offsetof
+#define offsetof(st, m) \
+    __builtin_offsetof(st, m)
+#endif
+
+#ifdef _MSC_VER
+#    define no_unique_address msvc::no_unique_address
+#else
+#    define no_unique_address no_unique_address
+#endif
+
+#ifdef __ck_debug__
+#define expect$(...) do {                                    \
+    if (!(__VA_ARGS__)) {                                    \
+        panic("assertion failed: " stringify$(__VA_ARGS__)); \
+    }                                                        \
+} while (0)
+#else
+#define expect$(EXPR) do {} while (0)
+#endif
+
+// MARK: Try -------------------------------------------------------------------
+
+#define __try$(RET, AWAIT, FINAL, NAME, ...) ({     \
+    auto NAME = AWAIT(__VA_ARGS__);                 \
+    if (not static_cast<bool>(NAME)) [[unlikely]] { \
+        RET NAME.none();                            \
+        FINAL;                                      \
+    }                                               \
+    NAME.take();                                    \
+})
+
+// clang-format off
+#define try$(...)      __try$(   return,          ,          , unique$(expr), __VA_ARGS__)
+#define co_try$(...)   __try$(co_return,          ,          , unique$(expr), __VA_ARGS__)
+#define co_trya$(...)  __try$(co_return,  co_await,          , unique$(expr), __VA_ARGS__)
+#define co_tryy$(...)  __try$( co_yield,          , co_return, unique$(expr), __VA_ARGS__)
+#define co_tryya$(...) __try$( co_yield,  co_await, co_return, unique$(expr), __VA_ARGS__)
+// clang-format on

@@ -1,0 +1,75 @@
+// Some test case from https://github.com/MikeLankamp/fpm/blob/master/LICENSE
+// License: MIT
+// Copyright (c) 2019 Mike Lankamp
+
+#include <karm/test>
+
+import Karm.Core;
+import Karm.Math;
+
+namespace Karm::Math::Tests {
+
+test$("fixed-arithmetic-negation") {
+    using P = i24f8;
+
+    assertEq$(P(-13.125), -P(13.125));
+    assertEq$(P(13.125), -P(-13.125));
+
+    return Ok();
+}
+
+test$("fixed-arithmetic-addition") {
+    using P = i24f8;
+
+    assertEq$(P(10.75), P(3.5) + P(7.25));
+
+    return Ok();
+}
+
+test$("fixed-arithmetic-subtraction") {
+    using P = i24f8;
+
+    assertEq$(P(-3.75), P(3.5) - P(7.25));
+
+    return Ok();
+}
+
+test$("fixed-arithmetic-multiplication") {
+    using P = i24f8;
+
+    assertEq$(P(-25.375), P(3.5) * P(-7.25));
+
+    return Ok();
+}
+
+test$("fixed-arithmetic-division") {
+    using P = i24f8;
+
+    assertEq$(P(3.5 / 7.25), P(3.5) / P(7.25));
+    assertEq$(P(-3.5 / 7.25), P(-3.5) / P(7.25));
+    assertEq$(P(3.5 / -7.25), P(3.5) / P(-7.25));
+    assertEq$(P(-3.5 / -7.25), P(-3.5) / P(-7.25));
+
+    return Ok();
+}
+
+test$("fixed-arithmetic-division-range") {
+    using P = Fixed<i32, 12>;
+
+    // These calculation will overflow and produce
+    // wrong results without the intermediate type.
+    assertEq$(P(32), P(256) / P(8));
+
+    return Ok();
+}
+
+test$("fixed-abs") {
+    using P = i24f8;
+
+    assertEq$(P(13.125), abs(P(13.125)));
+    assertEq$(P(13.125), abs(P(-13.125)));
+
+    return Ok();
+}
+
+} // namespace Karm::Math::Tests

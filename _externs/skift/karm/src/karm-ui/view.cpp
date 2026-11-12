@@ -1,0 +1,551 @@
+export module Karm.Ui:view;
+
+import Karm.Core;
+import Karm.Image;
+import Karm.Font;
+import Karm.Ref;
+import Karm.Gfx;
+import Karm.Math;
+
+import :node;
+
+using namespace Karm::Literals;
+using namespace Karm::Math::Literals;
+
+namespace Karm::Ui {
+
+// MARK: Base ------------------------------------------------------------------
+
+export template <typename Crtp>
+struct View : LeafNode<Crtp> {
+    Math::RectAu _bound;
+
+    Math::RectAu bound() override {
+        return _bound;
+    }
+
+    void layout(Math::RectAu bound) override {
+        _bound = bound;
+    }
+};
+
+// MARK: Text ------------------------------------------------------------------
+
+static Opt<Rc<Gfx::Fontface>> _regularFontface = NONE;
+
+Rc<Gfx::Fontface> regularFontface() {
+    if (not _regularFontface) {
+        _regularFontface = Some(Font::globalDatabase().queryClosestOrFallback("sans-serif"_sym));
+    }
+    return *_regularFontface;
+}
+
+static Opt<Rc<Gfx::Fontface>> _mediumFontface = NONE;
+
+Rc<Gfx::Fontface> mediumFontface() {
+    if (not _mediumFontface) {
+        _mediumFontface = Some(Font::globalDatabase().queryClosestOrFallback("sans-serif"_sym, {.weight = Gfx::FontWeight::MEDIUM}));
+    }
+    return *_mediumFontface;
+}
+
+static Opt<Rc<Gfx::Fontface>> _boldFontface = NONE;
+
+Rc<Gfx::Fontface> boldFontface() {
+    if (not _boldFontface) {
+        _boldFontface = Some(Font::globalDatabase().queryClosestOrFallback("sans-serif"_sym, {.weight = Gfx::FontWeight::BOLD}));
+    }
+    return *_boldFontface;
+}
+
+static Opt<Rc<Gfx::Fontface>> _italicFontface = NONE;
+
+Rc<Gfx::Fontface> italicFontface() {
+    if (not _italicFontface) {
+        _italicFontface = Some(Font::globalDatabase().queryClosestOrFallback("sans-serif"_sym, {.style = Gfx::FontStyle::ITALIC}));
+    }
+    return *_italicFontface;
+}
+
+static Opt<Rc<Gfx::Fontface>> _codeFontface = NONE;
+
+Rc<Gfx::Fontface> codeFontface() {
+    if (not _codeFontface) {
+        _codeFontface = Some(Font::globalDatabase().queryClosestOrFallback("monospace"_sym));
+    }
+    return *_codeFontface;
+}
+
+export struct TextStyles {
+    static Gfx::ProseProps displayLarge() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            57,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps displayMedium() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            45,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps displaySmall() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            36,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps headlineLarge() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            32,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps headlineMedium() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            28,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps headlineSmall() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            24,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps titleLarge() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            22,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps titleMedium() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            mediumFontface(),
+            16,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps titleSmall() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            mediumFontface(),
+            14,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps labelLarge() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            mediumFontface(),
+            14,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps labelMedium() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            mediumFontface(),
+            12,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps labelSmall() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            mediumFontface(),
+            11,
+        };
+        return style;
+    }
+
+    static Gfx::ProseProps bodyLarge() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            16,
+        };
+        style.multiline = true;
+        return style;
+    }
+
+    static Gfx::ProseProps bodyMedium() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            14,
+        };
+        style.multiline = true;
+        return style;
+    }
+
+    static Gfx::ProseProps bodySmall() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            regularFontface(),
+            12,
+        };
+        style.multiline = true;
+        return style;
+    }
+
+    static Gfx::ProseProps codeLarge() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            codeFontface(),
+            16,
+        };
+        style.multiline = true;
+        return style;
+    }
+
+    static Gfx::ProseProps codeMedium() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            codeFontface(),
+            14,
+        };
+        style.multiline = true;
+        return style;
+    }
+
+    static Gfx::ProseProps codeSmall() {
+        Gfx::ProseProps style;
+        style.font = Gfx::Font{
+            codeFontface(),
+            12,
+        };
+        style.multiline = true;
+        return style;
+    }
+};
+
+struct Text : View<Text> {
+    Rc<Gfx::Prose> _prose;
+
+    Text(Rc<Gfx::Prose> prose)
+        : _prose(std::move(prose)) {}
+
+    Text(Gfx::ProseProps style, Str text)
+        : _prose(makeRc<Gfx::Prose>(style, style, text)) {}
+
+    void reconcile(Text& o) override {
+        _prose = std::move(o._prose);
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu) override {
+        g.push();
+        g.origin(bound().xy.cast<f64>());
+        g.fill(_prose);
+        g.pop();
+    }
+
+    void layout(Math::RectAu bound) override {
+        _prose->layout(bound.width);
+        View<Text>::layout(bound);
+    }
+
+    Math::Vec2Au size(Math::Vec2Au s, Hint) override {
+        return _prose->layout(s.width);
+    }
+};
+
+export Child text(Gfx::ProseProps style, Str text) {
+    return makeRc<Text>(style, text);
+}
+
+export Child text(Str text) {
+    return makeRc<Text>(TextStyles::labelMedium(), text);
+}
+
+export Child text(Rc<Karm::Gfx::Prose> prose) {
+    return makeRc<Text>(prose);
+}
+
+export template <typename... Args>
+Child text(Gfx::ProseProps style, Str format, Args&&... args) {
+    return text(style, Io::format(format, std::forward<Args>(args)...));
+}
+
+export template <typename... Args>
+Child text(Str format, Args&&... args) {
+    return text(Io::format(format, std::forward<Args>(args)...));
+}
+
+#define DEF_STYLE(STYLE)                                                               \
+    export Child STYLE(Str text) { return Karm::Ui::text(TextStyles::STYLE(), text); } \
+    export Child STYLE(Gfx::Color color, Str text) {                                   \
+        auto style = TextStyles::STYLE();                                              \
+        style.color = Some(color);                                                     \
+        return Karm::Ui::text(style, text);                                            \
+    }                                                                                  \
+    export template <typename... Args>                                                 \
+    inline Child STYLE(Str format, Args&&... args) {                                   \
+        return text(TextStyles::STYLE(), format, std::forward<Args>(args)...);         \
+    }                                                                                  \
+    export template <typename... Args>                                                 \
+    inline Child STYLE(Gfx::Color color, Str format, Args&&... args) {                 \
+        auto style = TextStyles::STYLE();                                              \
+        style.color = Some(color);                                                     \
+        return text(style, format, std::forward<Args>(args)...);                       \
+    }
+
+DEF_STYLE(displayLarge)
+DEF_STYLE(displayMedium)
+DEF_STYLE(displaySmall)
+DEF_STYLE(headlineLarge)
+DEF_STYLE(headlineMedium)
+DEF_STYLE(headlineSmall)
+DEF_STYLE(titleLarge)
+DEF_STYLE(titleMedium)
+DEF_STYLE(titleSmall)
+DEF_STYLE(labelLarge)
+DEF_STYLE(labelMedium)
+DEF_STYLE(labelSmall)
+DEF_STYLE(bodyLarge)
+DEF_STYLE(bodyMedium)
+DEF_STYLE(bodySmall)
+DEF_STYLE(codeLarge)
+DEF_STYLE(codeMedium)
+DEF_STYLE(codeSmall)
+
+#undef DEF_STYLE
+
+// MARK: Icon ------------------------------------------------------------------
+
+struct Icon : View<Icon> {
+    Gfx::Icon _icon;
+    Au _size;
+    Opt<Gfx::Color> _color;
+
+    Icon(Gfx::Icon icon, Au size, Opt<Gfx::Color> color = NONE)
+        : _icon(icon), _size(size), _color(color) {}
+
+    void reconcile(Icon& o) override {
+        _icon = o._icon;
+        _color = o._color;
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu) override {
+        g.push();
+        if (_color)
+            g.fillStyle(_color.expect());
+        _icon.fill(g, bound().topStart().cast<f64>(), _size.cast<isize>());
+        g.pop();
+    }
+
+    Math::Vec2Au size(Math::Vec2Au, Hint) override {
+        return Math::Vec2Au{_size, _size};
+    }
+};
+
+export Child icon(Gfx::Icon icon, Opt<Gfx::Color> color = NONE) {
+    return makeRc<Icon>(icon, 18_au, color);
+}
+
+export Child icon(Gfx::Icon i, Au size, Opt<Gfx::Color> color = NONE) {
+    return makeRc<Icon>(i, size, color);
+}
+
+// MARK: Image -----------------------------------------------------------------
+
+struct Image : View<Image> {
+    Rc<Gfx::Image> _image;
+    Opt<Math::Radiif> _radii;
+
+    Image(Rc<Gfx::Image> image, Opt<Math::Radiif> radii = NONE)
+        : _image(image), _radii(radii) {}
+
+    void reconcile(Image& other) override {
+        _image = other._image;
+        _radii = other._radii;
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu) override {
+        g.push();
+
+        if (_radii) {
+            g.fillStyle(_image);
+            g.fill(bound().cast<f64>(), *_radii);
+        } else {
+            g.blit(bound().cast<isize>(), _image);
+        }
+
+        g.pop();
+    }
+
+    Math::Vec2Au size(Math::Vec2Au size, Hint hint) override {
+        if (hint == Hint::MIN)
+            return _image->bound().cast<f64>().fit(Math::Rectf{size.cast<f64>()}).size().cast<Au>();
+        return _image->bound().size().cast<Au>();
+    }
+};
+
+export Child image(Ref::Url url, Opt<Math::Radiif> radii = NONE) {
+    return makeRc<Image>(Karm::Image::loadOrFallback(url).expect(), radii);
+}
+
+export Child image(Rc<Gfx::Image> image, Opt<Math::Radiif> radii = NONE) {
+    return makeRc<Image>(image, radii);
+}
+
+// MARK: Canvas ----------------------------------------------------------------
+
+export using OnPaint = Func<void(Gfx::Canvas& g, Math::Vec2Au size)>;
+
+struct OnPainView : View<OnPainView> {
+    OnPaint _onPaint;
+
+    OnPainView(OnPaint onPaint)
+        : _onPaint(std::move(onPaint)) {}
+
+    void reconcile(OnPainView& o) override {
+        _onPaint = std::move(o._onPaint);
+        View::reconcile(o);
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu) override {
+        g.push();
+        g.clip(_bound.cast<f64>());
+        g.origin(_bound.xy.cast<f64>());
+        _onPaint(g, _bound.wh);
+        g.pop();
+    }
+
+    Math::Vec2Au size(Math::Vec2Au, Hint hint) override {
+        if (hint == Hint::MIN)
+            return 0_au;
+        return _bound.wh;
+    }
+};
+
+export Child onPaint(OnPaint onPaint) {
+    return makeRc<OnPainView>(std::move(onPaint));
+}
+
+// MARK: Canvas ----------------------------------------------------------------
+
+struct Canvas : View<Canvas> {
+    Gfx::Snapshot _snapshot;
+
+    Canvas(Gfx::Snapshot snapshot)
+        : _snapshot(std::move(snapshot)) {}
+
+    void reconcile(Canvas& o) override {
+        _snapshot = std::move(o._snapshot);
+        View::reconcile(o);
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu) override {
+        g.push();
+        g.clip(_bound.cast<f64>());
+        auto transform =
+            Math::Trans2f::translate(_bound.xy.cast<f64>())
+                .scaled(_bound.size().cast<f64>() / _snapshot.size().cast<f64>());
+        g.transform(transform);
+        _snapshot.replay(g).expect();
+        g.pop();
+    }
+
+    Math::Vec2Au size(Math::Vec2Au, Hint hint) override {
+        if (hint == Hint::MIN)
+            return {0_au, 0_au};
+        return _bound.wh;
+    }
+};
+
+export Child canvas(Gfx::Snapshot snapshot) {
+    return makeRc<Canvas>(std::move(snapshot));
+}
+
+// MARK: Blur ------------------------------------------------------------------
+
+struct BackgroundFilter : ProxyNode<BackgroundFilter> {
+    Gfx::Filter _filter;
+
+    BackgroundFilter(Gfx::Filter filter, Child child)
+        : ProxyNode(std::move(child)),
+          _filter(filter) {}
+
+    void reconcile(BackgroundFilter& o) override {
+        _filter = o._filter;
+        ProxyNode::reconcile(o);
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu r) override {
+        g.push();
+        g.clip(bound().cast<f64>());
+        g.apply(_filter);
+        g.pop();
+        ProxyNode::paint(g, r);
+    }
+};
+
+export Child backgroundFilter(Gfx::Filter f, Child child) {
+    return makeRc<BackgroundFilter>(f, std::move(child));
+}
+
+export auto backgroundFilter(Gfx::Filter f) {
+    return [=](Child child) {
+        return backgroundFilter(f, child);
+    };
+}
+
+struct ForegroundFilter : ProxyNode<ForegroundFilter> {
+    Gfx::Filter _filter;
+
+    ForegroundFilter(Gfx::Filter filter, Child child)
+        : ProxyNode<ForegroundFilter>(std::move(child)),
+          _filter(filter) {}
+
+    void reconcile(ForegroundFilter& o) override {
+        _filter = o._filter;
+        ProxyNode<ForegroundFilter>::reconcile(o);
+    }
+
+    void paint(Gfx::Canvas& g, Math::RectAu r) override {
+        ProxyNode<ForegroundFilter>::paint(g, r);
+        g.push();
+        g.clip(bound().cast<f64>());
+        g.apply(_filter);
+        g.pop();
+    }
+};
+
+export Child foregroundFilter(Gfx::Filter f, Child child) {
+    return makeRc<ForegroundFilter>(f, std::move(child));
+}
+
+export auto foregroundFilter(Gfx::Filter f) {
+    return [=](Child child) {
+        return foregroundFilter(f, child);
+    };
+}
+
+} // namespace Karm::Ui

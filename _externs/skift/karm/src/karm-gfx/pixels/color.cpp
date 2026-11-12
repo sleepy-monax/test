@@ -1,0 +1,392 @@
+module;
+
+#include <karm/macros>
+
+export module Karm.Gfx.Pixels:color;
+
+import Karm.Core;
+import Karm.Math;
+
+namespace Karm::Gfx {
+
+export struct Color {
+    u8 red, green, blue, alpha;
+
+    always_inline static constexpr Color fromHex(u32 hex) {
+        return {
+            static_cast<u8>((hex >> 16) & 0xFF),
+            static_cast<u8>((hex >> 8) & 0xFF),
+            static_cast<u8>(hex & 0xFF),
+            static_cast<u8>(0xFF),
+        };
+    }
+
+    always_inline static constexpr Color fromPacked(u32 hex) {
+        return {
+            static_cast<u8>((hex >> 24) & 0xFF),
+            static_cast<u8>((hex >> 16) & 0xFF),
+            static_cast<u8>((hex >> 8) & 0xFF),
+            static_cast<u8>((hex >> 0) & 0xFF),
+        };
+    }
+
+    always_inline constexpr u32 packed() const {
+        return (static_cast<u32>(red) << 24) |
+               (static_cast<u32>(green) << 16) |
+               (static_cast<u32>(blue) << 8) |
+               (static_cast<u32>(alpha) << 0);
+    }
+
+    always_inline static constexpr Color fromRgb(u8 red, u8 green, u8 blue) {
+        return {red, green, blue, 255};
+    }
+
+    always_inline static constexpr Color fromRgba(u8 red, u8 green, u8 blue, u8 alpha) {
+        return {red, green, blue, alpha};
+    }
+
+    always_inline static constexpr Color fromFloats(Math::Vec4f v) {
+        return {
+            clampTo<u8>(v.x * 255),
+            clampTo<u8>(v.y * 255),
+            clampTo<u8>(v.z * 255),
+            clampTo<u8>(v.w * 255),
+        };
+    }
+
+    always_inline constexpr Color()
+        : red(0), green(0), blue(0), alpha(0) {}
+
+    always_inline constexpr Color(u8 red, u8 green, u8 blue, u8 alpha = 255)
+        : red(red), green(green), blue(blue), alpha(alpha) {}
+
+    always_inline constexpr Color(Math::Vec4u v)
+        : red(v.x), green(v.y), blue(v.z), alpha(v.w) {}
+
+    always_inline constexpr Color blendOver(Color const background) const {
+        if (alpha == 0xff) {
+            return *this;
+        } else if (alpha == 0) {
+            return background;
+        } else if (background.alpha == 255u) {
+            return {
+                static_cast<u8>((background.red * 255u * (255u - alpha) + 255u * alpha * red) / 65025),
+                static_cast<u8>((background.green * 255u * (255u - alpha) + 255u * alpha * green) / 65025),
+                static_cast<u8>((background.blue * 255u * (255u - alpha) + 255u * alpha * blue) / 65025),
+                static_cast<u8>(255),
+            };
+        } else {
+            u16 d = 255u * (background.alpha + alpha) - background.alpha * alpha;
+
+            return {
+                static_cast<u8>((background.red * background.alpha * (255u - alpha) + 255u * alpha * red) / d),
+                static_cast<u8>((background.green * background.alpha * (255u - alpha) + 255u * alpha * green) / d),
+                static_cast<u8>((background.blue * background.alpha * (255u - alpha) + 255u * alpha * blue) / d),
+                static_cast<u8>(d / 255u),
+            };
+        }
+    }
+
+    always_inline constexpr bool transparent() const {
+        return alpha == 0;
+    }
+
+    always_inline constexpr Color premultiply() const {
+        f64 a = alpha / 255.0f;
+        return {
+            static_cast<u8>(Math::round(red * a)),
+            static_cast<u8>(Math::round(green * a)),
+            static_cast<u8>(Math::round(blue * a)),
+            static_cast<u8>(alpha),
+        };
+    }
+
+    always_inline constexpr Color unpremultiply() const {
+        f64 a = alpha / 255.0f;
+        return {
+            static_cast<u8>(Math::round(red / a)),
+            static_cast<u8>(Math::round(green / a)),
+            static_cast<u8>(Math::round(blue / a)),
+            static_cast<u8>(alpha),
+        };
+    }
+
+    always_inline constexpr Color lerpWith(Color const other, f64 const t) const {
+        return {
+            static_cast<u8>(red + (other.red - red) * t),
+            static_cast<u8>(green + (other.green - green) * t),
+            static_cast<u8>(blue + (other.blue - blue) * t),
+            static_cast<u8>(alpha + (other.alpha - alpha) * t),
+        };
+    }
+
+    always_inline constexpr Color withOpacity(f64 const opacity) const {
+        return {
+            static_cast<u8>(red),
+            static_cast<u8>(green),
+            static_cast<u8>(blue),
+            static_cast<u8>(alpha * opacity),
+        };
+    }
+
+    always_inline constexpr Color withAlpha(u8 const alpha) const {
+        return {
+            static_cast<u8>(red),
+            static_cast<u8>(green),
+            static_cast<u8>(blue),
+            alpha,
+        };
+    }
+
+    always_inline constexpr operator Math::Vec4u() const {
+        return {
+            static_cast<u32>(red),
+            static_cast<u32>(green),
+            static_cast<u32>(blue),
+            static_cast<u32>(alpha),
+        };
+    }
+
+    always_inline constexpr f64 luminance() const {
+        auto r = red / 255.0;
+        auto g = green / 255.0;
+        auto b = blue / 255.0;
+        return Math::sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b);
+    }
+
+    always_inline constexpr Color sample(Math::Vec2f) const {
+        return *this;
+    }
+
+    always_inline constexpr Math::Vec4f vec4() const {
+        return {
+            red / 255.,
+            green / 255.,
+            blue / 255.,
+            alpha / 255.,
+        };
+    }
+
+    void repr(Io::Emit& e) const {
+        e("(color #{:02x}{:02x}{:02x}{:02x})", red, green, blue, alpha);
+    }
+
+    auto operator<=>(Color const& other) const = default;
+    bool operator==(Color const& other) const = default;
+};
+
+struct HueValueChroma {
+    f64 hue;
+    f64 value;
+    f64 chroma;
+};
+
+static HueValueChroma _rgbToHueValueChroma(Color color) {
+    f64 r = color.red / 255.0;
+    f64 g = color.green / 255.0;
+    f64 b = color.blue / 255.0;
+
+    f64 rgbMax = Karm::max(r, g, b);
+    f64 rgbMin = Karm::min(r, g, b);
+
+    f64 delta = rgbMax - rgbMin;
+
+    f64 hue = 0.0;
+    if (delta != 0.0) {
+        if (rgbMax == r) {
+            hue = (g - b) / delta;
+        } else if (rgbMax == g) {
+            hue = 2.0 + (b - r) / delta;
+        } else if (rgbMax == b) {
+            hue = 4.0 + (r - g) / delta;
+        }
+    }
+
+    hue *= 60.0;
+    if (hue < 0.0) {
+        hue += 360.0;
+    }
+
+    return {hue, rgbMax, delta};
+}
+
+static Color _chromaHueMinCompToRgb(f64 c, f64 h, f64 m) {
+    f64 x = c * (1.0 - Math::abs(Math::fmod(h / 60.0, 2.0) - 1.0));
+
+    f64 r = 0.0;
+    f64 g = 0.0;
+    f64 b = 0.0;
+
+    if (h < 60.0) {
+        r = c;
+        g = x;
+    } else if (h < 120.0) {
+        r = x;
+        g = c;
+    } else if (h < 180.0) {
+        g = c;
+        b = x;
+    } else if (h < 240.0) {
+        g = x;
+        b = c;
+    } else if (h < 300.0) {
+        r = x;
+        b = c;
+    } else {
+        r = c;
+        b = x;
+    }
+
+    return {
+        static_cast<u8>(Math::round((r + m) * 255.0)),
+        static_cast<u8>(Math::round((g + m) * 255.0)),
+        static_cast<u8>(Math::round((b + m) * 255.0)),
+    };
+}
+
+export struct Hsv {
+    f64 hue, saturation, value;
+
+    Hsv withHue(f64 hue) const {
+        return {hue, saturation, value};
+    }
+
+    Hsv withSaturation(f64 saturation) const {
+        return {hue, saturation, value};
+    }
+
+    Hsv withValue(f64 value) const {
+        return {hue, saturation, value};
+    }
+
+    auto operator<=>(Hsv const& other) const = default;
+
+    bool operator==(Hsv const& other) const = default;
+
+    void repr(Io::Emit& e) const {
+        e("(hsv {} {} {})", hue, saturation, value);
+    }
+};
+
+export Hsv rgbToHsv(Color color) {
+    auto [hue, value, chroma] = _rgbToHueValueChroma(color);
+
+    f64 saturation = value == 0.0f ? 0.0f : chroma / value;
+
+    return {hue, saturation, value};
+}
+
+export Color hsvToRgb(Hsv hsv) {
+    f64 h = hsv.hue;
+    f64 s = hsv.saturation;
+    f64 v = hsv.value;
+
+    f64 c = v * s;
+    f64 minComp = v - c;
+
+    return _chromaHueMinCompToRgb(c, h, minComp).withOpacity(1);
+}
+
+export struct Hsl {
+    f64 hue, saturation, lightness;
+
+    Hsl(f64 hue, f64 saturation, f64 lightness)
+        : hue(Math::fmod(hue, 360.0)),
+          saturation(clamp01(saturation)),
+          lightness(clamp01(lightness)) {}
+
+    Hsl withHue(f64 hue) const {
+        return {hue, saturation, lightness};
+    }
+
+    Hsl withSaturation(f64 saturation) const {
+        return {hue, saturation, lightness};
+    }
+
+    Hsl withLightness(f64 lightness) const {
+        return {hue, saturation, lightness};
+    }
+
+    always_inline Hsl lerpWith(Hsl const other, f64 const t) const {
+        return {
+            Math::fmod(hue + (other.hue - hue) * t, 360.0),
+            saturation + (other.saturation - saturation) * t,
+            lightness + (other.lightness - lightness) * t,
+        };
+    }
+
+    auto operator<=>(Hsl const& other) const = default;
+
+    bool operator==(Hsl const& other) const = default;
+
+    void repr(Io::Emit& e) const {
+        e("(hsl {} {} {})", hue, saturation, lightness);
+    }
+};
+
+export Hsl rgbToHsl(Color color) {
+    auto [hue, value, chroma] = _rgbToHueValueChroma(color);
+
+    f64 lightness = value - chroma / 2.0f;
+    f64 saturation =
+        lightness == 0.0f or lightness == 1.0f
+            ? 0.0f
+            : (value - lightness) / Karm::min(lightness, 1.0f - lightness);
+
+    return {hue, saturation, lightness};
+}
+
+export Color hslToRgb(Hsl hsl) {
+    f64 h = hsl.hue;
+    f64 s = hsl.saturation;
+    f64 l = hsl.lightness;
+
+    f64 c = (1.0f - Math::abs(2.0 * l - 1.0)) * s;
+    f64 minComp = l - c / 2.0;
+
+    return _chromaHueMinCompToRgb(c, h, minComp);
+}
+
+export struct YCbCr {
+    f32 y, cb, cr;
+
+    always_inline f32 operator[](usize i) const {
+        switch (i) {
+        case 0:
+            return y;
+        case 1:
+            return cb;
+        case 2:
+            return cr;
+        default:
+            return 0;
+        }
+    }
+
+    always_inline auto operator<=>(YCbCr const& other) const = default;
+
+    void repr(Io::Emit& e) const {
+        e("(ycbcr {} {} {})", y, cb, cr);
+    }
+};
+
+export YCbCr rgbToYCbCr(Color color) {
+    YCbCr yCbCr;
+    yCbCr.y = 0.299 * color.red + 0.587 * color.green + 0.114 * color.blue;
+    yCbCr.cb = 128 - 0.168736 * color.red - 0.331264 * color.green + 0.5 * color.blue;
+    yCbCr.cr = 128 + 0.5 * color.red - 0.418688 * color.green - 0.081312 * color.blue;
+    return yCbCr;
+}
+
+export Color yCbCrToRgb(YCbCr yCbCr) {
+    float r = yCbCr.y + 1.402f * yCbCr.cr + 128;
+    float g = yCbCr.y - 0.344f * yCbCr.cb - 0.714f * yCbCr.cr + 128;
+    float b = yCbCr.y + 1.772f * yCbCr.cb + 128;
+
+    r = clamp(r, 0.0f, 255.0f);
+    g = clamp(g, 0.0f, 255.0f);
+    b = clamp(b, 0.0f, 255.0f);
+    return Gfx::Color::fromRgba(r, g, b, 255);
+}
+
+} // namespace Karm::Gfx

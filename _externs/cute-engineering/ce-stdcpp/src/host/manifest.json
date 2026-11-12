@@ -1,0 +1,14 @@
+{
+    "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.component.v1",
+    "id": "ce-libcpp.host",
+    "type": "lib",
+    "description": "Placeholder for the host libcpp library",
+    "enableIf": {
+        "host": [
+            true
+        ]
+    },
+    "provides": [
+        "libcpp"
+    ]
+}

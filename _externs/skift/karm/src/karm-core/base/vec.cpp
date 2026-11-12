@@ -1,0 +1,224 @@
+module;
+
+#include <karm/macros>
+
+export module Karm.Core:base.vec;
+
+import :base.box;
+import :base.buf;
+import :base.manual;
+import :base.opt;
+
+namespace Karm {
+
+export template <typename S, typename T = typename S::Inner>
+struct _Vec {
+    using Inner = T;
+
+    S _buf{};
+
+    constexpr _Vec() = default;
+
+    _Vec(usize cap) : _buf(cap) {}
+
+    _Vec(std::initializer_list<T> other) : _buf(other) {}
+
+    _Vec(Sliceable<T> auto const& other) : _buf(other) {}
+
+    _Vec(S storage) : _buf(std::move(storage)) {}
+
+    _Vec(Wrap, Manual<T>* buf, usize cap)
+        requires requires(Manual<T>* b, usize c) { S(b, c); }
+        : _buf(buf, cap) {}
+
+    static _Vec filled(usize len, T fill = {})
+        requires requires(usize l, T f) { S::init(l, f); }
+    {
+        return _Vec(S::init(len, fill));
+    }
+
+    _Vec(Box<T[]>&& box)
+        requires Meta::Same<S, Buf<T>>
+    {
+        usize len = box.len();
+        _buf = S{MOVE, box.take(), len};
+    }
+
+    // MARK: Collection
+
+    bool removeAll(Meta::Equatable<T> auto const& val) {
+        bool changed = false;
+
+        for (usize i = 1; i < _buf.len() + 1; i++) {
+            if (_buf[i - 1] == val) {
+                _buf.removeAt(i - 1);
+                changed = true;
+                i--;
+            }
+        }
+
+        return changed;
+    }
+
+    // MARK: Capacity
+
+    void ensure(usize cap) { _buf.ensure(cap); }
+
+    void trunc(usize len) { _buf.trunc(len); }
+
+    void resize(usize len, T fill = {}) { _buf.resize(len, fill); }
+
+    void fit() { _buf.fit(); }
+
+    void clear() { _buf.trunc(0); }
+
+    void leak()
+        requires requires(S& s) { s.leak(); }
+    {
+        _buf.leak();
+    }
+
+    Box<T[]> boxed()
+        requires Meta::Same<S, Buf<T>>
+    {
+        _buf.fit();
+        usize len = _buf.len();
+        return {MOVE, _buf.take(), len};
+    }
+
+    usize cap() const { return _buf.cap(); }
+
+    // MARK: Random Access
+
+    always_inline void insert(usize index, T const& value) { _buf.insert(index, T(value)); }
+
+    always_inline void insert(usize index, T&& value) { _buf.insert(index, std::move(value)); }
+
+    always_inline void insertMany(usize index, Sliceable<T> auto const& other) {
+        for (auto& v : other) {
+            insert(index++, v);
+        }
+    }
+
+    void replace(usize index, T const& value) { _buf[index] = T(value); }
+
+    void replace(usize index, T&& value) { _buf[index] = std::move(value); }
+
+    T removeAt(usize index) { return _buf.removeAt(index); }
+
+    void removeRange(usize index, usize count) { _buf.removeRange(index, count); }
+
+    void removeRange(urange range) { _buf.removeRange(range.start, range.size); }
+
+    void removeUnordered(usize index) {
+        if (index >= len()) [[unlikely]]
+            panic("removeUnordered: index out of bounds");
+
+        if (len() <= 1) {
+            clear();
+            return;
+        }
+
+        std::swap(_buf[index], _buf[_buf.len() - 1]);
+        _buf.trunc(_buf.len() - 1);
+    }
+
+    // MARK: Front Access
+
+    void pushFront(T const& value) { insert(0, T(value)); }
+
+    void pushFront(T&& value) { insert(0, std::move(value)); }
+
+    void pushFront(Sliceable<T> auto& other) {
+        for (auto& v : iterRev(other))
+            pushFront(v);
+    }
+
+    template <typename... Args>
+    T& emplaceFront(Args&&... args) lifetimebound {
+        return _buf.emplace(0, std::forward<Args>(args)...);
+    }
+
+    T popFront() {
+        if (len() == 0)
+            panic("pop on empty");
+        return _buf.removeAt(0);
+    }
+
+    // MARK: Back Access
+
+    void pushBack(T const& value) { insert(len(), value); }
+
+    void pushBack(T&& value) { insert(len(), std::move(value)); }
+
+    void pushBack(Sliceable<T> auto& other) {
+        for (auto& v : other)
+            pushBack(v);
+    }
+
+    template <typename... Args>
+    T& emplaceBack(Args&&... args) lifetimebound {
+        return _buf.emplace(len(), std::forward<Args>(args)...);
+    }
+
+    T popBack() {
+        if (len() == 0)
+            panic("pop on empty");
+        return removeAt(len() - 1);
+    }
+
+    // MARK: MutSliceable
+
+    constexpr usize len() const { return _buf.len(); }
+
+    constexpr T* buf() lifetimebound { return _buf.buf(); }
+
+    constexpr T const* buf() const lifetimebound { return _buf.buf(); }
+
+    constexpr T& operator[](usize i) lifetimebound {
+        if (i >= len()) [[unlikely]]
+            panic("index out of bounds");
+
+        return _buf[i];
+    }
+
+    constexpr T const& operator[](usize i) const lifetimebound {
+        if (i >= len()) [[unlikely]]
+            panic("index out of bounds");
+
+        return _buf[i];
+    }
+
+    constexpr Opt<T&> index(usize i) lifetimebound {
+        if (i >= len())
+            return NONE;
+        return Some(_buf[i]);
+    }
+
+    constexpr Opt<T const&> index(usize i) const lifetimebound {
+        if (i >= len())
+            return NONE;
+        return Some(_buf[i]);
+    }
+
+    constexpr explicit operator bool() const { return len(); }
+};
+
+export template <typename T>
+using Vec = _Vec<Buf<T>>;
+
+export template <typename T, usize N>
+using InlineVec = _Vec<InlineBuf<T, N>>;
+
+export template <typename T, usize N>
+using SmallVec = _Vec<SmallBuf<T, N>>;
+
+export template <typename T>
+using ViewVec = _Vec<ViewBuf<T>>;
+
+export template <Nicheable T>
+struct Niche<_Vec<T>> {
+    struct Content : Niche<T>::Content {};
+};
+
+} // namespace Karm

@@ -1,0 +1,55 @@
+#include <karm/test>
+
+import Karm.Math;
+
+namespace Karm::Math::Tests {
+
+test$("insets-map-order") {
+    u8 start = 1;
+    u8 top = 2;
+    u8 bottom = 3;
+    u8 end = 4;
+
+    Insets<u8> oldInset{
+        top,
+        end,
+        bottom,
+        start
+    };
+
+    auto newInset = oldInset.map([](auto x) {
+        return (u8)x;
+    });
+
+    assertEq$(oldInset.start, newInset.start);
+    assertEq$(oldInset.top, newInset.top);
+    assertEq$(oldInset.bottom, newInset.bottom);
+    assertEq$(oldInset.end, newInset.end);
+
+    return Ok();
+}
+
+test$("insets-cast-order") {
+    u8 start = 1;
+    u8 top = 2;
+    u8 bottom = 3;
+    u8 end = 4;
+
+    Insets<u8> oldInset{
+        top,
+        end,
+        bottom,
+        start
+    };
+
+    auto newInset = oldInset.cast<u8>();
+
+    assertEq$(oldInset.start, newInset.start);
+    assertEq$(oldInset.top, newInset.top);
+    assertEq$(oldInset.bottom, newInset.bottom);
+    assertEq$(oldInset.end, newInset.end);
+
+    return Ok();
+}
+
+} // namespace Karm::Math::Tests

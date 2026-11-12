@@ -1,0 +1,365 @@
+module;
+
+#include <errno.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#ifdef __ck_sys_freebsd__
+#    include <sys/socket.h>
+#    include <sys/wait.h>
+#endif
+//
+#include <karm/macros>
+
+export module Karm.Sys.Posix:utils;
+
+import Karm.Core;
+import Karm.Sys;
+import Karm.Ref;
+
+using namespace Karm::Literals;
+using namespace Karm::Ref::Literals;
+
+namespace Karm::Posix {
+
+export Error fromErrno(isize error) {
+    if (EOPNOTSUPP != ENOTSUP and error == EOPNOTSUPP) {
+        return Error::unsupported("operation not supported on socket");
+    }
+
+    if (EWOULDBLOCK != EAGAIN and error == EWOULDBLOCK) {
+        return Error::wouldBlock("operation would block");
+    }
+
+    switch (error) {
+    case 0:
+        return Error::other("success");
+    case E2BIG:
+        return Error::argumentListTooLong("argument list too long");
+    case EACCES:
+        return Error::permissionDenied("permission denied");
+    case EADDRINUSE:
+        return Error::addrInUse("address in use");
+    case EADDRNOTAVAIL:
+        return Error::addrNotAvailable("address not available");
+    case EAFNOSUPPORT:
+        return Error::unsupported("address family not supported");
+    case EAGAIN:
+        return Error::resourceBusy("resource unavailable, try again");
+    case EALREADY:
+        return Error::resourceBusy("connection already in progress");
+    case EBADF:
+        return Error::invalidInput("bad file descriptor");
+    case EBADMSG:
+        return Error::invalidData("bad message");
+    case EBUSY:
+        return Error::resourceBusy("device or resource busy");
+    case ECANCELED:
+        return Error::interrupted("operation cancelled");
+    case ECHILD:
+        return Error::other("no child processes");
+    case ECONNABORTED:
+        return Error::connectionAborted("connection aborted");
+    case ECONNREFUSED:
+        return Error::connectionRefused("connection refused");
+    case ECONNRESET:
+        return Error::connectionReset("connection reset");
+    case EDEADLK:
+        return Error::deadlock("resource deadlock would occur");
+    case EDESTADDRREQ:
+        return Error::invalidInput("destination address required");
+    case EDOM:
+        return Error::invalidInput("mathematics argument out of domain of function");
+    case EEXIST:
+        return Error::alreadyExists("file exists");
+    case EFAULT:
+        return Error::invalidInput("bad address");
+    case EFBIG:
+        return Error::fileTooLarge("file too large");
+    case EHOSTUNREACH:
+        return Error::hostUnreachable("host is unreachable");
+    case EIDRM:
+        return Error::invalidInput("identifier removed");
+    case EILSEQ:
+        return Error::invalidInput("illegal byte sequence");
+    case EINPROGRESS:
+        return Error::resourceBusy("operation in progress");
+    case EINTR:
+        return Error::interrupted("interrupted function");
+    case EINVAL:
+        return Error::invalidInput("invalid argument");
+    case EIO:
+        return Error::invalidInput("i/o error");
+    case EISCONN:
+        return Error::other("socket is connected");
+    case EISDIR:
+        return Error::isADirectory("is a directory");
+    case ELOOP:
+        return Error::filesystemLoop("too many levels of symbolic links");
+    case EMFILE:
+        return Error::invalidInput("file descriptor value too large");
+    case EMLINK:
+        return Error::tooManyLinks("too many links");
+    case EMSGSIZE:
+        return Error::invalidInput("message too large");
+    case ENAMETOOLONG:
+        return Error::invalidInput("filename too long");
+    case ENETDOWN:
+        return Error::networkDown("network is down");
+    case ENETRESET:
+        return Error::connectionReset("connection aborted by network");
+    case ENETUNREACH:
+        return Error::networkUnreachable("network unreachable");
+    case ENFILE:
+        return Error::limitReached("too many files open in system");
+    case ENOBUFS:
+        return Error::limitReached("no buffer space available");
+    case ENODATA:
+        return Error::other("no message is available on the STREAM head read queue");
+    case ENODEV:
+        return Error::notFound("no such device");
+    case ENOENT:
+        return Error::notFound("no such file or directory");
+    case ENOEXEC:
+        return Error::invalidData("executable file format error");
+    case ENOLCK:
+        return Error::limitReached("no locks available");
+    case ENOMEM:
+        return Error::outOfMemory("not enough space");
+    case ENOMSG:
+        return Error::other("no message of the desired type");
+    case ENOPROTOOPT:
+        return Error::invalidInput("protocol not available");
+    case ENOSPC:
+        return Error::storageFull("no space left on device");
+    case ENOSR:
+        return Error::limitReached("no STREAM resources");
+    case ENOSTR:
+        return Error::invalidInput("not a STREAM");
+    case ENOSYS:
+        return Error::unsupported("functionality not supported");
+    case ENOTCONN:
+        return Error::notConnected("the socket is not connected");
+    case ENOTDIR:
+        return Error::invalidInput("not a directory");
+    case ENOTEMPTY:
+        return Error::directoryNotEmpty("directory not empty");
+    case ENOTRECOVERABLE:
+        return Error::other("state not recoverable");
+    case ENOTSOCK:
+        return Error::invalidInput("not a socket");
+    case ENOTSUP:
+        return Error::unsupported("operation not supported");
+    case ENOTTY:
+        return Error::invalidInput("inappropriate i/o control operation");
+    case ENXIO:
+        return Error::notFound("no such device or address");
+    case EOVERFLOW:
+        return Error::other("value too large to be stored in data type");
+    case EOWNERDEAD:
+        return Error::other("previous owner died");
+    case EPERM:
+        return Error::permissionDenied("operation not permitted");
+    case EPIPE:
+        return Error::brokenPipe("broken pipe");
+    case EPROTO:
+        return Error::other("protocol error");
+    case EPROTONOSUPPORT:
+        return Error::unsupported("protocol not supported");
+    case EPROTOTYPE:
+        return Error::invalidInput("protocol wrong type for socket");
+    case ERANGE:
+        return Error::invalidInput("result too large");
+    case EROFS:
+        return Error::readOnlyFilesystem("read-only file system");
+    case ESPIPE:
+        return Error::invalidInput("invalid seek");
+    case ESRCH:
+        return Error::notFound("no such process");
+    case ETIME:
+        return Error::timedOut("stream ioctl() timeout");
+    case ETIMEDOUT:
+        return Error::timedOut("connection timed out");
+    case ETXTBSY:
+        return Error::resourceBusy("text file busy");
+    case EXDEV:
+        return Error::invalidInput("cross-device link");
+    default:
+        return Error::other("unknown errno");
+    }
+}
+
+export Error fromLastErrno() {
+    return fromErrno(errno);
+}
+
+export Error fromStatus(isize status) {
+    if (WIFEXITED(status)) {
+        return fromErrno(WEXITSTATUS(status));
+    } else if (WIFSIGNALED(status)) {
+        return Error::other("process terminated by signal");
+    } else {
+        return Error::other("process terminated abnormally");
+    }
+}
+
+export Res<> consumeErrno() {
+    if (errno == 0)
+        return Ok();
+
+    auto err = fromLastErrno();
+    errno = 0;
+    return err;
+}
+
+export sockaddr_in toSockAddr(Sys::SocketAddr addr) {
+    struct sockaddr_in sockaddr;
+    auto addr4 = addr.addr.expect<Sys::Ip4>("only ipv4 supported");
+    sockaddr.sin_family = AF_INET;
+    sockaddr.sin_port = htons(addr.port);
+    sockaddr.sin_addr.s_addr = addr4._raw._value;
+    return sockaddr;
+}
+
+export Sys::SocketAddr fromSockAddr(struct sockaddr_in sockaddr) {
+    Sys::SocketAddr addr{Sys::Ip4::unspecified(), 0};
+    addr.addr.expect<Sys::Ip4>("only ipv4 supported")._raw._value = sockaddr.sin_addr.s_addr;
+    addr.port = ntohs(sockaddr.sin_port);
+    return addr;
+}
+
+export Sys::Stat fromStat(struct stat const& buf) {
+    Sys::Stat stat{};
+    Sys::Type type = Sys::Type::FILE;
+    if (S_ISDIR(buf.st_mode))
+        type = Sys::Type::DIR;
+    stat.type = type;
+    stat.size = (usize)buf.st_size;
+    stat.accessTime = SystemTime::epoch() + Duration::fromSecs(buf.st_atime);
+    stat.modifyTime = SystemTime::epoch() + Duration::fromSecs(buf.st_mtime);
+    stat.changeTime = SystemTime::epoch() + Duration::fromSecs(buf.st_ctime);
+    return stat;
+}
+
+export struct timespec toTimespec(SystemTime ts) {
+    struct timespec pts;
+    if (ts.isEndOfTime()) {
+        pts.tv_sec = Limits<long>::MAX;
+        pts.tv_nsec = 0;
+        return pts;
+    } else {
+        pts.tv_sec = ts.val() / 1000000;
+        pts.tv_nsec = (ts.val() % 1000000) * 1000;
+    }
+    return pts;
+}
+
+export timespec toTimespec(Duration ts) {
+    timespec pts{};
+    if (ts.infinite()) {
+        pts.tv_sec = Limits<long>::MAX;
+        pts.tv_nsec = 0;
+        return pts;
+    }
+
+    pts.tv_sec = ts.val() / 1000000;
+    pts.tv_nsec = (ts.val() % 1000000) * 1000;
+    return pts;
+}
+
+export enum struct RepoType {
+    CUTEKIT,
+    PREFIX
+};
+
+export Res<Tuple<Str, RepoType>> repoRoot() {
+    auto* maybeRepo = getenv("CK_BUILDDIR");
+    if (maybeRepo) {
+        return Ok(Tuple<Str, RepoType>{
+            Str::fromNullterminated(maybeRepo),
+            RepoType::CUTEKIT,
+        });
+    }
+
+    maybeRepo = getenv("SKIFT_BUNDLES");
+    if (maybeRepo) {
+        return Ok(Tuple<Str, RepoType>{
+            Str::fromNullterminated(maybeRepo),
+            RepoType::CUTEKIT,
+        });
+    }
+
+#ifdef __ck_prefix_value
+    return Ok(Tuple{
+        stringify$(__ck_prefix_value) ""s,
+        RepoType::PREFIX,
+    });
+#endif
+
+    return Error::notFound("SKIFT_BUNDLES not set");
+}
+
+export Res<Ref::Path> resolve(Ref::Url const& url) {
+    Ref::Path resolved;
+    if (url.scheme == "file") {
+        resolved = url.path;
+    } else if (url.scheme == "fd") {
+        if (url.path.stem() == "stdin") {
+            resolved = "/dev/stdin"_path;
+        } else if (url.path.stem() == "stdout") {
+            resolved = "/dev/stdout"_path;
+        } else if (url.path.stem() == "stderr") {
+            resolved = "/dev/stderr"_path;
+        } else {
+            return Error::notFound("unknown fd");
+        }
+    } else if (url.scheme == "ipc") {
+        auto const* runtimeDir = getenv("XDG_RUNTIME_DIR");
+        if (not runtimeDir) {
+            runtimeDir = "/tmp/";
+            Sys::errln("XDG_RUNTIME_DIR not set, falling back on {}", runtimeDir);
+        }
+
+        auto path = url.path;
+        path.relativize();
+
+        resolved = Ref::Path::parse(runtimeDir).join(path);
+    } else if (url.scheme == "bundle") {
+        auto [repo, format] = try$(Posix::repoRoot());
+
+        auto path = url.path;
+        path.relativize();
+
+        if (format == Posix::RepoType::CUTEKIT) {
+            resolved = Ref::Path::parse(repo)
+                           .join(url.host.str())
+                           .join("__res__")
+                           .join(path);
+        } else if (format == Posix::RepoType::PREFIX) {
+            resolved = Ref::Path::parse(repo)
+                           .join("share")
+                           .join(url.host.str())
+                           .join(path);
+        } else {
+            return Error::notFound("unknown repo type");
+        }
+    } else if (url.scheme == "location") {
+        auto* maybeHome = getenv("HOME");
+        if (not maybeHome)
+            return Error::notFound("HOME not set");
+
+        auto path = url.path;
+        path.relativize();
+
+        if (url.host == "home")
+            resolved = Ref::Path::parse(maybeHome).join(path);
+        else
+            resolved = Ref::Path::parse(maybeHome).join(Io::toPascalCase(url.host.str()).expect()).join(path);
+    } else {
+        return Error::notFound("unknown url scheme");
+    }
+
+    return Ok(resolved);
+}
+
+} // namespace Karm::Posix

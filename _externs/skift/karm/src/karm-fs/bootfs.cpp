@@ -1,0 +1,49 @@
+module;
+
+#include <ce-bootfs/bootfs.h>
+#include <karm/macros>
+
+export module Karm.Fs:bootfs;
+
+import Karm.Sys;
+import :node;
+import :vfs;
+
+namespace Karm::Fs {
+
+export Async::Task<Rc<Node>> mountBootfsAsync(Rc<Sys::Fd> fd) {
+    auto fsRoot = co_trya$(createAsync<VDir>());
+    auto fsMmap = co_try$(Sys::mmap(Some(fd)));
+
+    auto const* header = reinterpret_cast<bootfs_header_t const*>(fsMmap.bytes().buf());
+    bootfs_iter_t iter = bootfs_iter(header);
+    for (bootfs_dirent_t const* dirent = bootfs_next(&iter); dirent != nullptr; dirent = bootfs_next(&iter)) {
+        auto filePath = Ref::Path::parse(Str::fromNullterminated(dirent->name));
+
+        auto fileParent = co_trya$(mkdirsAsync(fsRoot, filePath.parent()));
+        if (dirent->length != 0) {
+            auto sliceFd = co_try$(fd->slice({
+                dirent->offset,
+                alignUp(dirent->length, Sys::pageSize()),
+            }));
+
+            auto fileMmap = co_try$(Sys::mmap(Some(sliceFd)));
+
+            auto fileNode = co_trya$(createAsync<VFileMmap>(std::move(fileMmap), dirent->length, Some(sliceFd)));
+
+            co_trya$(fileParent->linkAsync(filePath.basename(), fileNode));
+        } else {
+            auto fileNode = co_trya$(createAsync<VFile>());
+            co_trya$(fileParent->linkAsync(filePath.basename(), fileNode));
+        }
+    }
+
+    co_return Ok(fsRoot);
+}
+
+export Async::Task<Rc<Node>> mountBootfsAsync(Ref::Url url) {
+    auto file = co_try$(Sys::File::open(url));
+    co_return co_await mountBootfsAsync(file.fd());
+}
+
+} // namespace Karm::Fs
