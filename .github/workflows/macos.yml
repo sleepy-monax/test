@@ -14,7 +14,9 @@ jobs:
           ./ck sync
           if [ -d _vendor/karm ]; then rsync -a _vendor/karm/ .cutekit/externs/skift/karm/; fi
       - name: Diagnose
-        run: ./ck --verbose model list --props:async=kevent 2>&1 | grep -A8 "disabled" | grep -v "^+" | head -200
+        run: |
+          ./ck --verbose build --props:async=kevent karm-av 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v "^+" | grep -iE -B2 -A20 "disabled|error|karm-av" | head -150
+          ls .cutekit/build/*/ | grep -i "av" || true
       - name: Build Libraries
         run: ./ck build --props:async=kevent
       - name: Test Libraries
