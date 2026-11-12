@@ -15,23 +15,19 @@ jobs:
           cp -R _externs .cutekit/externs
       - name: Build Libraries
         run: ./ck build --props:async=kevent
-      - name: Debug hang
-        run: |
-          ./ck build --props:async=kevent __tests__ > /dev/null 2>&1
-          BIN=$(ls .cutekit/build/host-arm64-*/karm-test.main/__bin__/* | head -1)
-          export CK_BUILDDIR=$(ls -d .cutekit/build/host-arm64-* | head -1)
-          echo "bin: $BIN builddir: $CK_BUILDDIR"
-          for g in "empty-body" "*"; do
-            echo "===== $g"
-            "$BIN" -g "$g" > out.log 2>&1 &
-            PID=$!
-            for i in $(seq 240); do kill -0 $PID 2>/dev/null || break; sleep 1; done
-            tail -c 3000 out.log
-            if kill -0 $PID 2>/dev/null; then
-              echo "===== HANG ($g), backtrace:"
-              sudo lldb -p $PID --batch -o "thread backtrace all" 2>&1 | head -150
-              kill -9 $PID
-            else
-              wait $PID; echo "exit: $?"
-            fi
-          done
+      - name: Test Libraries
+        timeout-minutes: 20
+        continue-on-error: true
+        run: ./ck test --props:async=kevent
+      - name: Run html5lib Lexer Tests
+        timeout-minutes: 20
+        continue-on-error: true
+        run: ./ck html5lib-tests run -s tokenizer --props:async=kevent
+      - name: Run html5lib Parser Tests
+        timeout-minutes: 20
+        continue-on-error: true
+        run: ./ck html5lib-tests run -s tree_construction --props:async=kevent
+      - name: Run Reftests
+        timeout-minutes: 30
+        continue-on-error: true
+        run: ./ck reftests run --headless --props:async=kevent

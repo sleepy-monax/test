@@ -2,6 +2,7 @@ module;
 
 #include <karm/macros>
 #include <sys/event.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -43,12 +44,22 @@ struct DarwinSched :
 
     [[clang::coro_wrapper]]
     Async::Task<> waitFor(struct kevent64_s ev) {
+        if (ev.filter == EVFILT_READ or ev.filter == EVFILT_WRITE) {
+            // kqueue never reports a regular file as readable once its offset is at EOF.
+            struct stat st{};
+            if (fstat((int)ev.ident, &st) == 0 and (S_ISREG(st.st_mode) or S_ISDIR(st.st_mode)))
+                return Async::makeTask(Async::One<Res<>>{Ok()});
+        }
+
         usize id = _id++;
         auto promise = Async::Promise<>();
         auto future = promise.future();
 
+        if (ev.filter == EVFILT_TIMER)
+            ev.ident = id;
+
         ev.udata = (decltype(ev.udata))id;
-        ::kevent64(
+        int res = ::kevent64(
             _kqueue,
 
             &ev,
@@ -62,6 +73,9 @@ struct DarwinSched :
 #endif
             nullptr
         );
+
+        if (res < 0)
+            return Async::makeTask(Async::One<Res<>>{Posix::fromLastErrno()});
 
         _promises.put(id, std::move(promise));
         return Async::makeTask(future);
