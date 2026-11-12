@@ -19,15 +19,17 @@ jobs:
         run: |
           ./ck build --props:async=kevent __tests__ > /dev/null 2>&1
           BIN=$(ls .cutekit/build/host-arm64-*/karm-test.main/__bin__/* | head -1)
-          echo "bin: $BIN"
-          for g in "empty-body" "async-*"; do
+          export CK_BUILDDIR=$(ls -d .cutekit/build/host-arm64-* | head -1)
+          echo "bin: $BIN builddir: $CK_BUILDDIR"
+          for g in "empty-body" "*"; do
             echo "===== $g"
-            "$BIN" -g "$g" &
+            "$BIN" -g "$g" > out.log 2>&1 &
             PID=$!
-            for i in $(seq 60); do kill -0 $PID 2>/dev/null || break; sleep 1; done
+            for i in $(seq 240); do kill -0 $PID 2>/dev/null || break; sleep 1; done
+            tail -c 3000 out.log
             if kill -0 $PID 2>/dev/null; then
               echo "===== HANG ($g), backtrace:"
-              sudo lldb -p $PID --batch -o "thread backtrace all" 2>&1 | head -300
+              sudo lldb -p $PID --batch -o "thread backtrace all" 2>&1 | head -150
               kill -9 $PID
             else
               wait $PID; echo "exit: $?"
