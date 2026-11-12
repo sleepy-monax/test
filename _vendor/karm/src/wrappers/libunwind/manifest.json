@@ -1,6 +1,6 @@
 {
     "$schema": "https://schemas.cute.engineering/stable/cutekit.manifest.component.v1",
-    "id": "karm-sys.unwind.darwin",
+    "id": "darwin.libunwind",
     "type": "lib",
     "description": "libunwind is part of libSystem on darwin.",
     "enableIf": {
