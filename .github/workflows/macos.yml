@@ -16,8 +16,18 @@ jobs:
       - name: Diagnose
         run: |
           ./ck --verbose build --props:async=kevent karm-av.sdl > diag.log 2>&1 || true
-          sed 's/\x1b\[[0-9;]*m//g' diag.log | grep -v "^+" | grep -iE "karm-av|Karm.Av|error|FAILED" | grep -v "Loading manifest" | head -60
-          ls .cutekit/build/*/ | grep -i "av" || true
+          ./ck --verbose model dump --props:async=kevent > model.json 2> model.log || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diag
+          path: |
+            diag.log
+            model.json
+            model.log
+            .cutekit/build/*/build.ninja
+            .cutekit/build/*/modules.dd
+      - name: Stop
+        run: exit 1
       - name: Build Libraries
         run: ./ck build --props:async=kevent
       - name: Test Libraries
