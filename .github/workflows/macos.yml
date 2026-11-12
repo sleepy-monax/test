@@ -15,7 +15,8 @@ jobs:
           if [ -d _vendor/karm ]; then rsync -a _vendor/karm/ .cutekit/externs/skift/karm/; fi
       - name: Diagnose
         run: |
-          ./ck --verbose build --props:async=kevent karm-av 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v "^+" | grep -iE -B2 -A20 "disabled|error|karm-av" | head -150
+          ./ck --verbose build --props:async=kevent karm-av.sdl > diag.log 2>&1 || true
+          sed 's/\x1b\[[0-9;]*m//g' diag.log | grep -v "^+" | grep -iE "karm-av|Karm.Av|error|FAILED" | grep -v "Loading manifest" | head -60
           ls .cutekit/build/*/ | grep -i "av" || true
       - name: Build Libraries
         run: ./ck build --props:async=kevent
