@@ -18,7 +18,7 @@ jobs:
       - name: Debug hang
         run: |
           ./ck build --props:async=kevent __tests__ > /dev/null 2>&1
-          BIN=$(ls .cutekit/build/host-arm64-*/__tests__/__bin__/__tests__ | head -1)
+          BIN=$(ls .cutekit/build/host-arm64-*/karm-test.main/__bin__/* | head -1)
           echo "bin: $BIN"
           for g in "empty-body" "async-*"; do
             echo "===== $g"
